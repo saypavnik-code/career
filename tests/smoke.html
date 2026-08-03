@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Смоук-тесты — Развитие компетенций</title>
+  <style>
+    body { font-family: 'SF Mono', Consolas, monospace; background: #0F172A; color: #E2E8F0; padding: 24px; }
+    h1 { color: #fff; font-size: 18px; }
+    .pass { color: #4ADE80; }
+    .fail { color: #F87171; }
+    .case { padding: 4px 0; border-bottom: 1px solid #1E293B; }
+    #summary { margin-top: 16px; font-weight: bold; font-size: 15px; }
+  </style>
+</head>
+<body>
+  <h1>Смоук-тесты: storage → repository → domain → service</h1>
+  <p style="color:#94A3B8;">Открывает временную тестовую БД (не трогает CompetencyDevDB), выполняет реальные операции IndexedDB и проверяет инварианты слоёв.</p>
+  <div id="results"></div>
+  <div id="summary"></div>
+
+  <script type="module">
+    const originalOpen = indexedDB.open.bind(indexedDB);
+    indexedDB.open = (name, version) =>
+      originalOpen(name === 'CompetencyDevDB' ? 'CompetencyDevDB_TEST_' + Date.now() : name, version);
+
+    const { openDatabase } = await import('../scripts/storage/db.js');
+    const { ActivityRepository } = await import('../scripts/repositories/activity-repository.js');
+    const { CompetencyRepository } = await import('../scripts/repositories/competency-repository.js');
+    const { createActivity, validateActivity } = await import('../scripts/domain/models/activity.js');
+    const { countActivitiesByCompetency, uniqueActiveDays } = await import('../scripts/domain/rules/competency-scoring.js');
+    const { ActivityService } = await import('../scripts/services/activity-service.js');
+    const { buildWeeklyReviewDocument } = await import('../scripts/reporting/templates/weekly-review.template.js');
+    const { toMarkdown } = await import('../scripts/reporting/exporters/markdown-exporter.js');
+    const { getWeekRange, toDateKey, todayKey } = await import('../scripts/utils/date.js');
+
+    const resultsEl = document.getElementById('results');
+    const cases = [];
+    function test(name, fn) { cases.push({ name, fn }); }
+    function assert(condition, message) { if (!condition) throw new Error(message || 'Assertion failed'); }
+
+    test('createActivity() бросает ValidationError без description', () => {
+      let threw = false;
+      try { createActivity({ date: todayKey(), category: 'seo_geo' }); }
+      catch (err) { threw = err.name === 'ValidationError'; }
+      assert(threw, 'Ожидалась ValidationError');
+    });
+
+    test('createActivity() создаёт валидную активность с id и timestamps', () => {
+      const a = createActivity({ date: todayKey(), category: 'seo_geo', description: 'Тест' });
+      assert(!!a.id, 'id должен быть сгенерирован');
+      assert(!!a.createdAt && !!a.updatedAt, 'timestamps должны быть выставлены');
+      assert(Array.isArray(a.competencyIds), 'competencyIds должен быть массивом');
+    });
+
+    test('validateActivity() возвращает массив ошибок для пустого объекта', () => {
+      const errors = validateActivity({});
+      assert(errors.length >= 2, 'должно быть минимум 2 ошибки (description, date/category)');
+    });
+
+    test('openDatabase() открывает соединение и создаёт все ожидаемые stores', async () => {
+      const db = await openDatabase();
+      const names = Array.from(db.objectStoreNames);
+      for (const expected of ['activities', 'competencies', 'evidence', '_meta_versions', 'backups']) {
+        assert(names.includes(expected), `Store "${expected}" отсутствует`);
+      }
+    });
+
+    test('ActivityRepository.add() затем getById() возвращает тот же объект', async () => {
+      const activity = createActivity({ date: todayKey(), category: 'ads', description: 'Round-trip тест' });
+      await ActivityRepository.add(activity);
+      const fetched = await ActivityRepository.getById(activity.id);
+      assert(fetched && fetched.id === activity.id, 'Не удалось прочитать сохранённую активность');
+      assert(fetched.description === 'Round-trip тест', 'Данные не совпадают после round-trip');
+    });
+
+    test('ActivityRepository.getByWeek() индексированный запрос возвращает верную запись', async () => {
+      const { start, end } = getWeekRange();
+      const activity = createActivity({ date: todayKey(), category: 'analytics', description: 'Недельный тест' });
+      await ActivityRepository.add(activity);
+      const weekActivities = await ActivityRepository.getByWeek(toDateKey(start), toDateKey(end));
+      assert(weekActivities.some((a) => a.id === activity.id), 'Активность не найдена через индекс date');
+    });
+
+    test('ActivityRepository.getByCompetencyId() multi-entry индекс работает', async () => {
+      const compId = 'test-comp-' + Date.now();
+      const activity = createActivity({ date: todayKey(), category: 'strategy', description: 'Компетенция тест', competencyIds: [compId] });
+      await ActivityRepository.add(activity);
+      const found = await ActivityRepository.getByCompetencyId(compId);
+      assert(found.length === 1 && found[0].id === activity.id, 'multi-entry индекс competencyIds не сработал');
+    });
+
+    test('CompetencyRepository CRUD работает независимо от Activity store', async () => {
+      const record = { id: 'test-' + Date.now(), name: 'Тестовая компетенция', archived: false };
+      await CompetencyRepository.add(record);
+      const all = await CompetencyRepository.getActive();
+      assert(all.some((c) => c.id === record.id), 'Компетенция не найдена после сохранения');
+    });
+
+    test('countActivitiesByCompetency() корректно агрегирует несколько активностей', () => {
+      const comp = { id: 'c1', name: 'Стратегия' };
+      const activities = [{ competencyIds: ['c1'] }, { competencyIds: ['c1', 'c2'] }, { competencyIds: [] }];
+      const result = countActivitiesByCompetency(activities, [comp]);
+      assert(result[0].count === 2, `Ожидалось 2, получено ${result[0].count}`);
+    });
+
+    test('uniqueActiveDays() считает уникальные дни, а не записи', () => {
+      const activities = [{ date: '2026-01-01' }, { date: '2026-01-01' }, { date: '2026-01-02' }];
+      assert(uniqueActiveDays(activities) === 2, 'Должно быть 2 уникальных дня');
+    });
+
+    test('ActivityService.captureActivity() сохраняет и эмитит событие', async () => {
+      let eventFired = false;
+      const { bus } = await import('../scripts/services/event-bus.js');
+      const unsubscribe = bus.on('activity:created', () => (eventFired = true));
+      await ActivityService.captureActivity({ date: todayKey(), category: 'pr', description: 'Событие тест' });
+      unsubscribe();
+      assert(eventFired, 'Событие activity:created не было отправлено');
+    });
+
+    test('buildWeeklyReviewDocument() + toMarkdown() производит непустой валидный Markdown', () => {
+      const { start, end } = getWeekRange();
+      const doc = buildWeeklyReviewDocument({
+        weekStart: start, weekEnd: end,
+        activities: [{ description: 'Пример', category: 'seo_geo', competencyIds: [], date: todayKey() }],
+        competencies: [],
+      });
+      const md = toMarkdown(doc);
+      assert(md.startsWith('# '), 'Markdown должен начинаться с заголовка H1');
+      assert(md.includes('Пример'), 'Содержимое активности должно попасть в отчёт');
+    });
+
+    // --- ПРОФЕССИОНАЛЬНЫЙ РОСТ: domain data + rules ---
+    const { COMPETENCY_SCALE, getAllCriteria } = await import('../scripts/domain/data/competency-scale.js');
+    const { calculateProgressionGaps, overallCompletionPct, nextLevel } = await import('../scripts/domain/rules/progression-gap.js');
+    const { findPotentialEvidence } = await import('../scripts/domain/rules/evidence-matching.js');
+    const { createTask, validateTask } = await import('../scripts/domain/models/task.js');
+    const { createCriterionProgress } = await import('../scripts/domain/models/criterion-progress.js');
+    const { CriterionProgressRepository } = await import('../scripts/repositories/criterion-progress-repository.js');
+    const { TaskRepository } = await import('../scripts/repositories/task-repository.js');
+
+    test('COMPETENCY_SCALE содержит 12 областей', () => {
+      assert(COMPETENCY_SCALE.length === 12, `Ожидалось 12, получено ${COMPETENCY_SCALE.length}`);
+    });
+
+    test('getAllCriteria() возвращает 152 пункта (12 областей × 3 уровня)', () => {
+      const all = getAllCriteria();
+      assert(all.length === 152, `Ожидалось 152, получено ${all.length}`);
+    });
+
+    test('nextLevel() строит корректную цепочку specialist → senior → lead → null', () => {
+      assert(nextLevel('specialist') === 'senior', 'specialist должен вести к senior');
+      assert(nextLevel('senior') === 'lead', 'senior должен вести к lead');
+      assert(nextLevel('lead') === null, 'lead — последний уровень');
+    });
+
+    test('calculateProgressionGaps() без прогресса — все пункты в gaps', () => {
+      const result = calculateProgressionGaps('specialist', COMPETENCY_SCALE, new Map());
+      const strategy = result.find((a) => a.areaId === 'strategy');
+      assert(strategy.gaps.length === strategy.currentLevelCriteria.length, 'Все пункты без прогресса должны быть gaps');
+      assert(overallCompletionPct(result) === 0, 'Общий процент должен быть 0 без прогресса');
+    });
+
+    test('calculateProgressionGaps() корректно считает completionPct при частичном прогрессе', () => {
+      const strategyArea = COMPETENCY_SCALE.find((a) => a.id === 'strategy');
+      const progressMap = new Map();
+      const firstCriterion = strategyArea.levels.specialist[0];
+      progressMap.set(firstCriterion.id, createCriterionProgress({ criterionId: firstCriterion.id, status: 'done' }));
+      const result = calculateProgressionGaps('specialist', COMPETENCY_SCALE, progressMap);
+      const strategy = result.find((a) => a.areaId === 'strategy');
+      const expectedPct = Math.round((1 / strategyArea.levels.specialist.length) * 100);
+      assert(strategy.completionPct === expectedPct, `Ожидался ${expectedPct}%, получено ${strategy.completionPct}%`);
+    });
+
+    test('findPotentialEvidence() находит совпадение по однокоренным словам разных форм', () => {
+      const activities = [{ description: 'Провёл конкурентный анализ рынка и предложил решения по улучшению позиционирования', tags: [] }];
+      const matches = findPotentialEvidence('Анализирует конкурентную среду и предлагает решения', activities);
+      assert(matches.length === 1, 'Должно найтись совпадение через стемминг однокоренных слов');
+    });
+
+    test('findPotentialEvidence() не находит ложных совпадений для несвязанного текста', () => {
+      const activities = [{ description: 'Написал текст для лендинга про интеграции с мессенджерами', tags: [] }];
+      const matches = findPotentialEvidence('Анализирует конкурентную среду и предлагает решения', activities);
+      assert(matches.length === 0, 'Несвязанная активность не должна попадать в совпадения');
+    });
+
+    test('createTask() бросает ValidationError без title', () => {
+      let threw = false;
+      try { createTask({}); } catch (err) { threw = err.name === 'ValidationError'; }
+      assert(threw, 'Ожидалась ValidationError');
+    });
+
+    test('createTask() создаёт задачу со статусом todo и привязкой к criterion', () => {
+      const task = createTask({ title: 'Изучить Brand24', linkedCriterionId: 'analytics-specialist-2', competencyAreaId: 'analytics', targetLevel: 'specialist' });
+      assert(task.status === 'todo', 'Новая задача должна быть в статусе todo');
+      assert(task.linkedCriterionId === 'analytics-specialist-2', 'Привязка к criterion должна сохраниться');
+    });
+
+    test('CriterionProgressRepository: add() затем getByCriterionId() round-trip', async () => {
+      const progress = createCriterionProgress({ criterionId: 'test-crit-' + Date.now(), status: 'done' });
+      await CriterionProgressRepository.add(progress);
+      const fetched = await CriterionProgressRepository.getByCriterionId(progress.criterionId);
+      assert(fetched && fetched.id === progress.id, 'Прогресс не найден после сохранения через индекс criterionId');
+    });
+
+    test('TaskRepository: add() затем getByStatus() возвращает задачу', async () => {
+      const task = createTask({ title: 'Тестовая задача roundtrip', competencyAreaId: 'strategy' });
+      await TaskRepository.add(task);
+      const todoTasks = await TaskRepository.getByStatus('todo');
+      assert(todoTasks.some((t) => t.id === task.id), 'Задача не найдена через индекс status');
+    });
+
+    test('BackupService.exportAll() включает criterion_progress и tasks в выгрузку', async () => {
+      const { BackupService } = await import('../scripts/services/backup-service.js');
+      const payload = await BackupService.exportAll();
+      assert('criterion_progress' in payload.stores, 'В бэкапе отсутствует criterion_progress');
+      assert('tasks' in payload.stores, 'В бэкапе отсутствует tasks');
+      assert(Array.isArray(payload.stores.tasks), 'payload.stores.tasks должен быть массивом');
+    });
+
+    // --- КАРТА КОМПЕТЕНЦИЙ: отчёт для руководства ---
+    const { buildCompetencyReportDocument } = await import('../scripts/reporting/templates/competency-report.template.js');
+    const { toCompetencyReportHtml } = await import('../scripts/reporting/exporters/competency-report-html-exporter.js');
+    const { toCompetencyReportMarkdown } = await import('../scripts/reporting/exporters/competency-report-markdown-exporter.js');
+
+    test('buildCompetencyReportDocument() возвращает документ со всеми 12 областями', () => {
+      const doc = buildCompetencyReportDocument({ currentLevel: 'specialist', competencyScale: COMPETENCY_SCALE, progressByCriterionId: new Map() });
+      assert(doc.areas.length === 12, `Ожидалось 12 областей, получено ${doc.areas.length}`);
+      assert(doc.summary.overallCompletionPct === 0, 'Без прогресса общий % должен быть 0');
+    });
+
+    test('buildCompetencyReportDocument() исключает области с 0% из strongestAreas', () => {
+      const strategyArea = COMPETENCY_SCALE.find((a) => a.id === 'strategy');
+      const progressMap = new Map();
+      const c = strategyArea.levels.specialist[0];
+      progressMap.set(c.id, createCriterionProgress({ criterionId: c.id, status: 'done' }));
+      const doc = buildCompetencyReportDocument({ currentLevel: 'specialist', competencyScale: COMPETENCY_SCALE, progressByCriterionId: progressMap });
+      assert(doc.summary.strongestAreas.every((a) => a.completionPct > 0), 'strongestAreas не должен содержать области с 0%');
+    });
+
+    test('toCompetencyReportHtml() производит валидный HTML-документ со всеми областями', () => {
+      const doc = buildCompetencyReportDocument({ currentLevel: 'specialist', competencyScale: COMPETENCY_SCALE, progressByCriterionId: new Map(), employeeName: 'Тест Тестов' });
+      const html = toCompetencyReportHtml(doc);
+      assert(html.startsWith('<!DOCTYPE html>'), 'HTML должен начинаться с DOCTYPE');
+      assert(html.includes('Тест Тестов'), 'Имя сотрудника должно попасть в отчёт');
+      assert(COMPETENCY_SCALE.every((a) => html.includes(a.name)), 'Все 12 областей должны присутствовать в HTML');
+    });
+
+    test('toCompetencyReportMarkdown() производит валидный Markdown с чекбоксами', () => {
+      const strategyArea = COMPETENCY_SCALE.find((a) => a.id === 'strategy');
+      const progressMap = new Map();
+      const c = strategyArea.levels.specialist[0];
+      progressMap.set(c.id, createCriterionProgress({ criterionId: c.id, status: 'done' }));
+      const doc = buildCompetencyReportDocument({ currentLevel: 'specialist', competencyScale: COMPETENCY_SCALE, progressByCriterionId: progressMap });
+      const md = toCompetencyReportMarkdown(doc);
+      assert(md.startsWith('# Карта компетенций'), 'Markdown должен начинаться с заголовка');
+      assert(md.includes('[x]'), 'Выполненный пункт должен отмечаться [x]');
+      assert(md.includes('[ ]'), 'Невыполненный пункт должен отмечаться [ ]');
+    });
+
+    test('ReportBuilder.buildCompetencyReport() бросает ошибку NO_POSITION без выбранной должности', async () => {
+      const { ReportBuilder } = await import('../scripts/reporting/report-builder.js');
+      const { ProgressionService } = await import('../scripts/services/progression-service.js');
+      ProgressionService.setCurrentPosition(null);
+      let threw = false;
+      try { await ReportBuilder.buildCompetencyReport({}); }
+      catch (err) { threw = err.code === 'NO_POSITION'; }
+      assert(threw, 'Ожидалась ошибка с кодом NO_POSITION');
+    });
+
+    test('ReportBuilder.buildCompetencyReport() строит отчёт при выбранной должности', async () => {
+      const { ReportBuilder } = await import('../scripts/reporting/report-builder.js');
+      const { ProgressionService } = await import('../scripts/services/progression-service.js');
+      ProgressionService.setCurrentPosition('senior');
+      const doc = await ReportBuilder.buildCompetencyReport({ employeeName: 'Проверка' });
+      assert(doc.currentLevel === 'senior', 'Уровень должен соответствовать выбранной должности');
+      assert(doc.employeeName === 'Проверка', 'Имя сотрудника должно сохраниться в документе');
+      ProgressionService.setCurrentPosition(null); // сброс после теста
+    });
+
+    let passed = 0;
+    for (const { name, fn } of cases) {
+      const row = document.createElement('div');
+      row.className = 'case';
+      try {
+        await fn();
+        row.innerHTML = `<span class="pass">✓ PASS</span> — ${name}`;
+        passed++;
+      } catch (err) {
+        row.innerHTML = `<span class="fail">✗ FAIL</span> — ${name}<br><span style="color:#F87171; font-size:12px;">${err.message}</span>`;
+      }
+      resultsEl.appendChild(row);
+    }
+    document.getElementById('summary').innerHTML = passed === cases.length
+      ? `<span class="pass">Все тесты пройдены: ${passed}/${cases.length}</span>`
+      : `<span class="fail">Пройдено: ${passed}/${cases.length}</span>`;
+  </script>
+</body>
+</html>

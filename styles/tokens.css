@@ -1,0 +1,55 @@
+/* =========================================================
+   DESIGN TOKENS — источник: design.md, значения перенесены 1:1
+   ========================================================= */
+:root {
+  --color-brand-primary: #2563EB;
+  --color-brand-primary-hover: #1D4ED8;
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-danger: #DC2626;
+  --color-info: #0EA5E9;
+  --color-success-bg: #DCFCE7; --color-success-fg: #15803D;
+  --color-warning-bg: #FEF3C7; --color-warning-fg: #B45309;
+  --color-danger-bg: #FEE2E2;  --color-danger-fg: #B91C1C;
+  --color-info-bg: #DBEAFE;    --color-info-fg: #1E40AF;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #64748B;
+  --color-text-disabled: #94A3B8;
+  --color-text-inverse: #FFFFFF;
+  --color-surface-base: #FFFFFF;
+  --color-surface-muted: #F1F5F9;
+  --color-surface-alt: #F8FAFC;
+  --color-surface-dark: #0F172A;
+  --color-border-default: #E2E8F0;
+  --color-border-strong: #CBD5E1;
+  --color-border-focus: #3B82F6;
+
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --text-h1-size: 24px;   --text-h1-weight: 700; --text-h1-line: 1.2;
+  --text-h2-size: 20px;   --text-h2-weight: 600; --text-h2-line: 1.3;
+  --text-h3-size: 16px;   --text-h3-weight: 600; --text-h3-line: 1.4;
+  --text-body-size: 14px; --text-body-weight: 400; --text-body-line: 1.5;
+  --text-small-size: 13px; --text-small-weight: 400; --text-small-line: 1.4;
+  --text-micro-size: 12px; --text-micro-weight: 500; --text-micro-line: 1.3;
+  --numeric-feature-settings: 'tnum';
+  --numeric-variant: tabular-nums;
+
+  --container-max-width: 1440px;
+  --sidebar-width: 240px;
+  --topbar-height: 56px;
+  --grid-columns: 12;
+  --grid-gutter: 16px;
+  --base-spacing-unit: 4px;
+  --space-xs: 4px; --space-sm: 8px; --space-md: 12px; --space-lg: 16px; --space-xl: 24px; --space-xxl: 32px;
+
+  --radius-none: 0px; --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-pill: 999px;
+
+  --elevation-none: none;
+  --elevation-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --elevation-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --elevation-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --elevation-dropdown: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+  --icon-size-sm: 16px; --icon-size-md: 20px; --icon-color-decorative: #64748B;
+  --control-height: 38px;
+}

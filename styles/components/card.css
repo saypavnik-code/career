@@ -1,0 +1,11 @@
+.card { background-color: var(--color-surface-base); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); padding: var(--space-lg); }
+.card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-md); padding-bottom: var(--space-md); border-bottom: 1px solid var(--color-border-default); }
+.card-header:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+.card-title { font-size: var(--text-h3-size); font-weight: var(--text-h3-weight); color: var(--color-text-primary); }
+.card-description { font-size: var(--text-small-size); color: var(--color-text-secondary); margin-top: 2px; }
+.metric-card .metric-label { font-size: var(--text-micro-size); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+.metric-card .metric-value { font-size: 28px; font-weight: 700; color: var(--color-text-primary); font-feature-settings: var(--numeric-feature-settings); font-variant-numeric: var(--numeric-variant); margin-top: var(--space-xs); }
+.metric-card .metric-delta { display: inline-flex; align-items: center; gap: 2px; font-size: var(--text-micro-size); font-weight: 600; margin-top: var(--space-xs); }
+.metric-delta.up { color: var(--color-success); } .metric-delta.down { color: var(--color-danger); } .metric-delta.flat { color: var(--color-text-secondary); }
+.empty-state { padding: var(--space-xxl) var(--space-lg); text-align: center; color: var(--color-text-secondary); font-size: var(--text-small-size); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); background-color: var(--color-surface-alt); }
+.empty-state .empty-title { font-weight: 600; color: var(--color-text-primary); margin-bottom: var(--space-xs); }
