@@ -17,13 +17,14 @@ export function openDatabase() {
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
+      const transaction = event.target.transaction;
       const fromVersion = event.oldVersion;
       const toVersion = event.newVersion;
       for (let v = fromVersion + 1; v <= toVersion; v++) {
         const migration = migrations[v - 1];
         if (!migration) continue;
         try {
-          migration.up(db);
+          migration.up(db, transaction);
           appliedVersions.push({ version: v, name: migration.name, success: true });
         } catch (err) {
           appliedVersions.push({ version: v, name: migration.name, success: false, error: String(err) });

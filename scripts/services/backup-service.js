@@ -3,7 +3,8 @@ import { CompetencyRepository } from '../repositories/competency-repository.js';
 import { EvidenceRepository } from '../repositories/evidence-repository.js';
 import { BackupRepository } from '../repositories/backup-repository.js';
 import { CriterionProgressRepository } from '../repositories/criterion-progress-repository.js';
-import { TaskRepository } from '../repositories/task-repository.js';
+import { WinRepository } from '../repositories/win-repository.js';
+import { IdeaRepository } from '../repositories/idea-repository.js';
 import { CURRENT_SCHEMA_VERSION } from '../storage/db.js';
 import { LocalSettings } from '../storage/local-settings.js';
 import { generateId } from '../utils/id.js';
@@ -13,7 +14,8 @@ const REPOSITORIES = {
   competencies: CompetencyRepository,
   evidence: EvidenceRepository,
   criterion_progress: CriterionProgressRepository,
-  tasks: TaskRepository,
+  wins: WinRepository,
+  ideas: IdeaRepository,
 };
 
 export const BackupService = {

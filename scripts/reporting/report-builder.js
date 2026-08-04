@@ -2,6 +2,7 @@ import { ActivityService } from '../services/activity-service.js';
 import { CompetencyService } from '../services/competency-service.js';
 import { ProgressionService } from '../services/progression-service.js';
 import { CriterionProgressRepository } from '../repositories/criterion-progress-repository.js';
+import { WinRepository } from '../repositories/win-repository.js';
 import { COMPETENCY_SCALE } from '../domain/data/competency-scale.js';
 import { buildWeeklyReviewDocument } from './templates/weekly-review.template.js';
 import { buildCompetencyReportDocument } from './templates/competency-report.template.js';
@@ -30,8 +31,11 @@ export const ReportBuilder = {
       err.code = 'NO_POSITION';
       throw err;
     }
-    const progressByCriterionId = await CriterionProgressRepository.getAllAsMap();
-    return buildCompetencyReportDocument({ currentLevel, competencyScale: COMPETENCY_SCALE, progressByCriterionId, employeeName });
+    const [progressByCriterionId, wins] = await Promise.all([
+      CriterionProgressRepository.getAllAsMap(),
+      WinRepository.getAll(),
+    ]);
+    return buildCompetencyReportDocument({ currentLevel, competencyScale: COMPETENCY_SCALE, progressByCriterionId, wins, employeeName });
   },
 
   export(doc, format, { reportType = 'weekly-review' } = {}) {

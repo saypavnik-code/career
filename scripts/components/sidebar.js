@@ -8,7 +8,8 @@ const NAV_GROUPS = [
   ]},
   { title: 'Развитие', items: [
     { view: 'growth', label: 'Профессиональный рост', icon: 'target' },
-    { view: 'tasks', label: 'Задачи', icon: 'check' },
+    { view: 'wins', label: 'Победы', icon: 'check' },
+    { view: 'ideas', label: 'Идеи', icon: 'sparkles' },
   ]},
   { title: 'Конфигурация', items: [{ view: 'settings', label: 'Настройки', icon: 'settings' }] },
 ];
@@ -28,7 +29,7 @@ export function renderSidebar(activeView) {
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="app-name">Развитие компетенций</div>
-        <div class="app-subtitle">Bitrix24 LATAM</div>
+        <div class="app-subtitle">per aspera ad astra</div>
       </div>
       <nav class="sidebar-nav" id="sidebarNav">${groupsHtml}</nav>
     </aside>

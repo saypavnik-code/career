@@ -4,7 +4,7 @@
 // текущего уровня и целями роста для следующего.
 // =========================================================
 import { ProgressionService } from '../services/progression-service.js';
-import { TaskService } from '../services/task-service.js';
+import { WinService } from '../services/win-service.js';
 import { LEVELS, LEVEL_LABELS } from '../domain/data/competency-scale.js';
 import { renderCriterionRow } from '../components/criterion-row.js';
 import { escapeHtml } from '../utils/dom.js';
@@ -129,9 +129,9 @@ function wireEvents(container) {
       return;
     }
 
-    const taskBtn = e.target.closest('[data-action="create-task"]');
-    if (taskBtn) {
-      const row = taskBtn.closest('.criterion-row');
+    const winBtn = e.target.closest('[data-action="record-win"]');
+    if (winBtn) {
+      const row = winBtn.closest('.criterion-row');
       const criterionId = row.dataset.criterionId;
       const areaId = row.dataset.areaId;
       const level = row.dataset.level;
@@ -139,10 +139,10 @@ function wireEvents(container) {
       const criterion = [...(area?.currentLevelCriteria || []), ...(area?.growthCriteria || [])].find((c) => c.id === criterionId);
       if (!criterion || !area) return;
       try {
-        await TaskService.createFromCriterion({ criterion, areaId, areaName: area.areaName, level });
-        NotificationService.success('Задача создана — смотрите на вкладке «Задачи»');
+        await WinService.recordFromCriterion({ criterion, areaId, areaName: area.areaName, level });
+        NotificationService.success('Победа зафиксирована — смотрите на вкладке «Победы»');
       } catch {
-        NotificationService.error('Не удалось создать задачу');
+        NotificationService.error('Не удалось зафиксировать победу');
       }
     }
   });

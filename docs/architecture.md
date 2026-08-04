@@ -58,18 +58,41 @@ long-form version — this file is the condensed, implementation-adjacent compan
 никогда не изменяемые кодом.
 
 Слои:
-- `domain/models/criterion-progress.js`, `domain/models/task.js` — валидация и фабрики
+- `domain/models/criterion-progress.js`, `domain/models/win.js`, `domain/models/idea.js` — валидация и фабрики
 - `domain/rules/progression-gap.js` — чистая функция расчёта пробелов/целей роста
 - `domain/rules/evidence-matching.js` — грубый стеммер + пересечение ключевых слов для
   подсказки "эта активность может быть доказательством" (эвристика, не финальное решение —
   пользователь всегда подтверждает вручную)
-- `repositories/criterion-progress-repository.js`, `repositories/task-repository.js`
+- `repositories/criterion-progress-repository.js`, `repositories/win-repository.js`, `repositories/idea-repository.js`
 - `services/progression-service.js` (текущая должность хранится в LocalStorage как
-  UI-настройка, не доменные данные), `services/task-service.js`
-- `views/growth-view.js`, `views/tasks-view.js` + компоненты `criterion-row.js`, `task-card.js`
+  UI-настройка, не доменные данные), `services/win-service.js`, `services/idea-service.js`
+- `views/growth-view.js`, `views/wins-view.js`, `views/ideas-view.js` + компоненты
+  `criterion-row.js`, `win-card.js`, `idea-card.js`
 
 Ручное подтверждение пункта — единственный источник истины для "выполнено"; подсказка
 по активностям — только вспомогательная, никогда не закрывает пункт автоматически.
+
+### Победы vs Идеи — разделение продуктовой логики (v3)
+
+Изначальная сущность `Task` (со статусами "К выполнению/В работе/Готово") была расщеплена
+на две по продуктовому решению: приложение документирует свершившееся, а не планирует
+будущее.
+
+- **Победа (Win)** — `domain/models/win.js`. Без статусов планирования — фиксация
+  достижения, как Activity. Поля: `title`, `description`, `impact`, `metric`, `date`,
+  `linkedCriterionId`, `competencyAreaId`, `targetLevel`. Создаётся кнопкой «Зафиксировать
+  победу» на экране «Профессиональный рост» и учитывается в Карте компетенций
+  (`reporting/templates/competency-report.template.js`) как раздел доказательств для
+  итоговой аттестации.
+- **Идея (Idea)** — `domain/models/idea.js`. Сохраняет канбан-статусы прежней Task
+  (`todo`/`in_progress`/`done`), но полностью независима от шкалы компетенций — свободное
+  пространство для организации мыслей и планов, со своей формой создания.
+
+Миграция `storage/migrations/v3__split-tasks-into-wins-and-ideas.js` переносит
+существующие записи из старого стора `tasks` в `wins` (ближе по смыслу к прежней
+семантике задачи, привязанной к пункту компетенции), затем удаляет `tasks`. Копирование
+данных выполняется до `deleteObjectStore()` — внутри `onsuccess` асинхронного `getAll()`,
+а не до его завершения, чтобы избежать гонки между чтением и удалением стора.
 
 ## Дополнение — Карта компетенций (презентационный отчёт)
 

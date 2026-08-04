@@ -1,7 +1,7 @@
 // =========================================================
 // COMPONENT — Criterion Row
 // Один пункт компетенции: чекбокс статуса + опциональная подсказка
-// о потенциальном доказательстве + кнопка "Создать задачу".
+// о потенциальном доказательстве + кнопка "Зафиксировать победу".
 // Props only — не фетчит данные сам.
 // =========================================================
 import { escapeHtml } from '../utils/dom.js';
@@ -36,8 +36,8 @@ export function renderCriterionRow({ criterion, areaId, areaName, level, mode = 
         ${growthBadge}
         ${evidenceHint}
       </div>
-      <button class="btn btn-ghost btn-sm" data-action="create-task" style="flex-shrink:0;">
-        Создать задачу
+      <button class="btn btn-ghost btn-sm" data-action="record-win" style="flex-shrink:0;">
+        Зафиксировать победу
       </button>
     </div>
   `;

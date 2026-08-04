@@ -133,10 +133,12 @@
     const { COMPETENCY_SCALE, getAllCriteria } = await import('../scripts/domain/data/competency-scale.js');
     const { calculateProgressionGaps, overallCompletionPct, nextLevel } = await import('../scripts/domain/rules/progression-gap.js');
     const { findPotentialEvidence } = await import('../scripts/domain/rules/evidence-matching.js');
-    const { createTask, validateTask } = await import('../scripts/domain/models/task.js');
+    const { createWin, validateWin } = await import('../scripts/domain/models/win.js');
+    const { createIdea, validateIdea, updateIdeaStatus, IDEA_STATUS } = await import('../scripts/domain/models/idea.js');
     const { createCriterionProgress } = await import('../scripts/domain/models/criterion-progress.js');
     const { CriterionProgressRepository } = await import('../scripts/repositories/criterion-progress-repository.js');
-    const { TaskRepository } = await import('../scripts/repositories/task-repository.js');
+    const { WinRepository } = await import('../scripts/repositories/win-repository.js');
+    const { IdeaRepository } = await import('../scripts/repositories/idea-repository.js');
 
     test('COMPETENCY_SCALE содержит 12 областей', () => {
       assert(COMPETENCY_SCALE.length === 12, `Ожидалось 12, получено ${COMPETENCY_SCALE.length}`);
@@ -183,16 +185,29 @@
       assert(matches.length === 0, 'Несвязанная активность не должна попадать в совпадения');
     });
 
-    test('createTask() бросает ValidationError без title', () => {
+    test('createWin() бросает ValidationError без title', () => {
       let threw = false;
-      try { createTask({}); } catch (err) { threw = err.name === 'ValidationError'; }
+      try { createWin({}); } catch (err) { threw = err.name === 'ValidationError'; }
       assert(threw, 'Ожидалась ValidationError');
     });
 
-    test('createTask() создаёт задачу со статусом todo и привязкой к criterion', () => {
-      const task = createTask({ title: 'Изучить Brand24', linkedCriterionId: 'analytics-specialist-2', competencyAreaId: 'analytics', targetLevel: 'specialist' });
-      assert(task.status === 'todo', 'Новая задача должна быть в статусе todo');
-      assert(task.linkedCriterionId === 'analytics-specialist-2', 'Привязка к criterion должна сохраниться');
+    test('createWin() создаёт победу без поля status и с привязкой к criterion', () => {
+      const win = createWin({ title: 'Изучил Brand24', impact: 'Ускорил еженедельную аналитику', linkedCriterionId: 'analytics-specialist-2', competencyAreaId: 'analytics', targetLevel: 'specialist' });
+      assert(!('status' in win), 'Победа не должна иметь поле status — это фиксация свершившегося, не план');
+      assert(win.linkedCriterionId === 'analytics-specialist-2', 'Привязка к criterion должна сохраниться');
+      assert(win.impact === 'Ускорил еженедельную аналитику', 'Поле impact должно сохраниться');
+    });
+
+    test('createIdea() создаёт идею со статусом todo, без привязки к компетенциям', () => {
+      const idea = createIdea({ title: 'Протестировать новый формат сторис' });
+      assert(idea.status === IDEA_STATUS.TODO, 'Новая идея должна быть в статусе todo');
+      assert(!('competencyAreaId' in idea), 'Идея не должна иметь привязки к компетенциям — независимое пространство');
+    });
+
+    test('updateIdeaStatus() корректно меняет статус идеи', () => {
+      const idea = createIdea({ title: 'Тест' });
+      const updated = updateIdeaStatus(idea, IDEA_STATUS.DONE);
+      assert(updated.status === 'done', 'Статус должен обновиться на done');
     });
 
     test('CriterionProgressRepository: add() затем getByCriterionId() round-trip', async () => {
@@ -202,19 +217,28 @@
       assert(fetched && fetched.id === progress.id, 'Прогресс не найден после сохранения через индекс criterionId');
     });
 
-    test('TaskRepository: add() затем getByStatus() возвращает задачу', async () => {
-      const task = createTask({ title: 'Тестовая задача roundtrip', competencyAreaId: 'strategy' });
-      await TaskRepository.add(task);
-      const todoTasks = await TaskRepository.getByStatus('todo');
-      assert(todoTasks.some((t) => t.id === task.id), 'Задача не найдена через индекс status');
+    test('WinRepository: add() затем getByCompetencyArea() возвращает победу', async () => {
+      const win = createWin({ title: 'Тестовая победа roundtrip', competencyAreaId: 'strategy' });
+      await WinRepository.add(win);
+      const strategyWins = await WinRepository.getByCompetencyArea('strategy');
+      assert(strategyWins.some((w) => w.id === win.id), 'Победа не найдена через индекс competencyAreaId');
     });
 
-    test('BackupService.exportAll() включает criterion_progress и tasks в выгрузку', async () => {
+    test('IdeaRepository: add() затем getByStatus() возвращает идею', async () => {
+      const idea = createIdea({ title: 'Тестовая идея roundtrip' });
+      await IdeaRepository.add(idea);
+      const todoIdeas = await IdeaRepository.getByStatus('todo');
+      assert(todoIdeas.some((i) => i.id === idea.id), 'Идея не найдена через индекс status');
+    });
+
+    test('BackupService.exportAll() включает criterion_progress, wins и ideas в выгрузку', async () => {
       const { BackupService } = await import('../scripts/services/backup-service.js');
       const payload = await BackupService.exportAll();
       assert('criterion_progress' in payload.stores, 'В бэкапе отсутствует criterion_progress');
-      assert('tasks' in payload.stores, 'В бэкапе отсутствует tasks');
-      assert(Array.isArray(payload.stores.tasks), 'payload.stores.tasks должен быть массивом');
+      assert('wins' in payload.stores, 'В бэкапе отсутствует wins');
+      assert('ideas' in payload.stores, 'В бэкапе отсутствует ideas');
+      assert(Array.isArray(payload.stores.wins), 'payload.stores.wins должен быть массивом');
+      assert(Array.isArray(payload.stores.ideas), 'payload.stores.ideas должен быть массивом');
     });
 
     // --- КАРТА КОМПЕТЕНЦИЙ: отчёт для руководства ---
@@ -235,6 +259,15 @@
       progressMap.set(c.id, createCriterionProgress({ criterionId: c.id, status: 'done' }));
       const doc = buildCompetencyReportDocument({ currentLevel: 'specialist', competencyScale: COMPETENCY_SCALE, progressByCriterionId: progressMap });
       assert(doc.summary.strongestAreas.every((a) => a.completionPct > 0), 'strongestAreas не должен содержать области с 0%');
+    });
+
+    test('buildCompetencyReportDocument() корректно распределяет победы по областям', () => {
+      const win1 = createWin({ title: 'Победа в стратегии', competencyAreaId: 'strategy', date: '2026-07-01' });
+      const win2 = createWin({ title: 'Победа в аналитике', competencyAreaId: 'analytics', date: '2026-07-02' });
+      const doc = buildCompetencyReportDocument({ currentLevel: 'specialist', competencyScale: COMPETENCY_SCALE, progressByCriterionId: new Map(), wins: [win1, win2] });
+      assert(doc.summary.totalWins === 2, `Ожидалось 2 победы в сводке, получено ${doc.summary.totalWins}`);
+      const strategyArea = doc.areas.find((a) => a.areaId === 'strategy');
+      assert(strategyArea.wins.length === 1 && strategyArea.wins[0].title === 'Победа в стратегии', 'Победа должна попасть в правильную область по competencyAreaId');
     });
 
     test('toCompetencyReportHtml() производит валидный HTML-документ со всеми областями', () => {

@@ -3,14 +3,16 @@ import { renderActivitiesView } from './views/activities-view.js';
 import { renderReportsView } from './views/reports-view.js';
 import { renderSettingsView } from './views/settings-view.js';
 import { renderGrowthView } from './views/growth-view.js';
-import { renderTasksView } from './views/tasks-view.js';
+import { renderWinsView } from './views/wins-view.js';
+import { renderIdeasView } from './views/ideas-view.js';
 
 const ROUTES = {
   overview: { title: 'Обзор', subtitle: '', mount: mountOverview },
   activities: { title: 'Активности', subtitle: 'Ежедневная фиксация', mount: renderActivitiesView },
   reports: { title: 'Отчёты', subtitle: 'Генерация из накопленных данных', mount: renderReportsView },
   growth: { title: 'Профессиональный рост', subtitle: 'Шкала компетенций отдела', mount: renderGrowthView },
-  tasks: { title: 'Задачи', subtitle: 'Задачи роста по компетенциям', mount: renderTasksView },
+  wins: { title: 'Победы', subtitle: 'Зафиксированные достижения', mount: renderWinsView },
+  ideas: { title: 'Идеи', subtitle: 'Мысли и планы', mount: renderIdeasView },
   settings: { title: 'Настройки', subtitle: '', mount: renderSettingsView },
 };
 const DEFAULT_VIEW = 'overview';

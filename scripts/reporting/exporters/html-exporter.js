@@ -17,15 +17,15 @@ export function toHtml(doc) {
 <meta charset="UTF-8">
 <title>${escapeHtml(doc.title)}</title>
 <style>
-  body { font-family: 'Inter', -apple-system, sans-serif; color: #0F172A; background: #F1F5F9; padding: 32px; }
-  .report { max-width: 720px; margin: 0 auto; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 32px; }
-  h1 { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
-  .period { color: #64748B; font-size: 13px; margin-bottom: 24px; }
-  h2 { font-size: 20px; font-weight: 600; margin: 24px 0 12px; border-bottom: 1px solid #E2E8F0; padding-bottom: 8px; }
-  h3 { font-size: 16px; font-weight: 600; margin: 16px 0 8px; }
-  ul { margin: 0 0 12px; padding-left: 20px; }
-  li { margin-bottom: 4px; font-size: 14px; }
-  .summary { color: #334155; font-size: 14px; }
+  body { font-family: 'Inter', 'Roboto', -apple-system, sans-serif; color: #1A1A1A; background: #F8F9FA; padding: 48px 24px; }
+  .report { max-width: 720px; margin: 0 auto; background: #FFFFFF; border: 1px solid #E8EAED; border-radius: 16px; padding: 48px; }
+  h1 { font-size: 32px; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .period { color: #5F6368; font-size: 14px; margin-bottom: 32px; }
+  h2 { font-size: 24px; font-weight: 700; margin: 32px 0 16px; border-bottom: 1px solid #E8EAED; padding-bottom: 12px; }
+  h3 { font-size: 18px; font-weight: 600; margin: 20px 0 8px; }
+  ul { margin: 0 0 16px; padding-left: 24px; }
+  li { margin-bottom: 6px; font-size: 16px; line-height: 1.5; }
+  .summary { color: #5F6368; font-size: 16px; }
 </style>
 </head>
 <body>

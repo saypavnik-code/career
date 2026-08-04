@@ -16,6 +16,7 @@ export function toCompetencyReportMarkdown(doc) {
   lines.push('');
   lines.push(`- Выполнено пунктов: ${s.totalDone} из ${s.totalCriteria}`);
   lines.push(`- Направлений закрыто полностью: ${s.fullyMetAreas} из ${s.totalAreas}`);
+  lines.push(`- Зафиксировано побед: ${s.totalWins}`);
   lines.push('');
   lines.push('**Сильные стороны:**');
   if (s.strongestAreas.length) {
@@ -45,6 +46,15 @@ export function toCompetencyReportMarkdown(doc) {
       lines.push('');
       for (const c of area.growthCriteria) {
         lines.push(`- [ ] ${c.text}`);
+      }
+    }
+    if (area.wins && area.wins.length) {
+      lines.push('');
+      lines.push(`_Зафиксированные победы (${area.wins.length})_`);
+      lines.push('');
+      for (const win of area.wins) {
+        const dateStr = new Date(win.date).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
+        lines.push(`- **${win.title}** (${dateStr})${win.impact ? ` — ${win.impact}` : ''}`);
       }
     }
     lines.push('');
