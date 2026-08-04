@@ -1,2 +1,16 @@
 razvitie-kompetenciy.zip
 apply_sprint_patch.py
+
+# Career OS generated files and local patch scripts
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+career_os_*_patch_v*.py
+apply_career_os_dashboard*.py
