@@ -1,79 +1,136 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  buildCoachNotes,
   buildReportMarkdown,
-  computeInsights,
+  computeProgress,
   createDefaultState,
+  inferLevelSignal,
   migrateState,
   promoteIdeaToWin,
-  selectWinsForPeriod,
+  suggestBehaviorRefs,
   suggestCompetencyIds,
 } from '../app/career/career-core.mjs'
 
 const competencies = [
-  { id: 'analytics', shortTitle: 'Аналитика', title: 'Аналитика' },
-  { id: 'pr', shortTitle: 'PR', title: 'PR' },
+  {
+    id: 'analytics',
+    shortTitle: 'Аналитика',
+    title: 'Аналитика',
+    levels: {
+      specialist: ['Собирает данные и отчёты'],
+      senior: ['Выявляет причинно-следственные связи и строит гипотезы'],
+      lead: ['Формирует методологию и прогнозирует влияние стратегии'],
+    },
+  },
+  {
+    id: 'pr',
+    shortTitle: 'PR',
+    title: 'PR',
+    levels: {
+      specialist: ['Готовит базовые PR-материалы'],
+      senior: ['Разрабатывает PR-планы и работает со СМИ'],
+      lead: ['Формирует репутационную стратегию региона'],
+    },
+  },
 ]
 const keywords = { analytics: ['данн', 'метрик'], pr: ['сми', 'журналист'] }
 
-test('suggestCompetencyIds returns ranked non-blocking suggestions', () => {
-  assert.deepEqual(
-    suggestCompetencyIds('Проверить данные и метрики, затем отправить журналистам', competencies, keywords, 2),
-    ['analytics', 'pr'],
-  )
+test('competency suggestions remain non-blocking and ranked', () => {
+  assert.deepEqual(suggestCompetencyIds('Проверить данные и метрики, затем отправить журналистам', competencies, keywords, 2), ['analytics', 'pr'])
 })
 
-test('promoteIdeaToWin preserves source and competency context', () => {
-  const win = promoteIdeaToWin({ id: 'idea-1', title: 'Test idea', competencyIds: ['analytics'] }, { impact: '10% growth' })
+test('level inference distinguishes execution, ownership and scale', () => {
+  assert.equal(inferLevelSignal('Подготовить и опубликовать материал').level, 'specialist')
+  assert.equal(inferLevelSignal('Проверить гипотезу и оптимизировать процесс по метрикам').level, 'senior')
+  assert.equal(inferLevelSignal('Сформировать стратегию и стандарты для команды региона').level, 'lead')
+})
+
+test('behavior suggestions point to relevant level signals without requiring them', () => {
+  const refs = suggestBehaviorRefs('Проверить гипотезу и причинно-следственные связи', ['analytics'], competencies, 'senior')
+  assert.deepEqual(refs, ['analytics:senior:0'])
+})
+
+test('promoting an idea carries completed work and level context into a win', () => {
+  const win = promoteIdeaToWin({
+    id: 'idea-1',
+    title: 'Новый PR-угол',
+    competencyIds: ['pr'],
+    behaviorRefs: ['pr:senior:0'],
+    levelSignal: 'senior',
+    workItems: [
+      { title: 'Выбрать факты', status: 'done' },
+      { title: 'Отправить письма', status: 'doing' },
+    ],
+    notes: [{ text: 'Лучше работает бизнес-угол' }],
+  })
   assert.equal(win.sourceIdeaId, 'idea-1')
-  assert.equal(win.title, 'Test idea')
-  assert.deepEqual(win.competencyIds, ['analytics'])
+  assert.equal(win.levelSignal, 'senior')
+  assert.deepEqual(win.workSummary, ['Выбрать факты'])
+  assert.deepEqual(win.noteSummary, ['Лучше работает бизнес-угол'])
 })
 
-test('report builder uses evidence and competency signals', () => {
+test('report builder includes completed work details', () => {
   const report = buildReportMarkdown({
-    profile: { name: 'Pavel', role: 'Marketer' },
-    wins: [{ title: 'Improved funnel', impact: 'Conversion +10%', evidence: 'Dashboard', competencyIds: ['analytics'] }],
+    profile: { name: 'Павел', role: 'Маркетолог' },
+    ideas: [],
+    wins: [{
+      title: 'Улучшил воронку',
+      impact: 'Конверсия +10%',
+      evidence: 'Дашборд',
+      competencyIds: ['analytics'],
+      levelSignal: 'senior',
+      workSummary: ['Провёл аудит', 'Запустил эксперимент'],
+    }],
     competencies,
     periodLabel: 'Q3 2026',
   })
-  assert.match(report, /Improved funnel/)
-  assert.match(report, /Conversion \+10%/)
-  assert.match(report, /Аналитика/)
+  assert.match(report, /Провёл аудит/)
+  assert.match(report, /Запустил эксперимент/)
+  assert.match(report, /Старший специалист/)
 })
 
-test('period selection excludes hidden and out-of-range wins', () => {
-  const wins = [
-    { id: 'a', date: '2026-07-10', reportReady: true },
-    { id: 'b', date: '2026-06-10', reportReady: true },
-    { id: 'c', date: '2026-07-20', reportReady: false },
-  ]
-  assert.deepEqual(selectWinsForPeriod(wins, '2026-07-01', '2026-07-31').map((item) => item.id), ['a'])
-})
-
-test('legacy v1 state migrates tasks into ideas without forcing a checklist', () => {
+test('v2 state migrates to Escada schema without data loss', () => {
   const migrated = migrateState({
-    profile: { name: 'Pavel' },
-    tasks: [{ id: '1', title: 'Run test', status: 'in_progress', competencyId: 'analytics', potentialWin: 'Learn result' }],
+    version: 2,
+    profile: { name: 'Павел', role: 'Маркетолог' },
+    ideas: [{ id: '1', title: 'Тест', status: 'exploring', competencyIds: ['analytics'], createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z' }],
     wins: [],
+    reports: [],
   }, createDefaultState(new Date('2026-08-04T00:00:00Z')))
-  assert.equal(migrated.version, 2)
-  assert.equal(migrated.ideas[0].status, 'exploring')
-  assert.deepEqual(migrated.ideas[0].competencyIds, ['analytics'])
+  assert.equal(migrated.version, 3)
+  assert.equal(migrated.ideas[0].title, 'Тест')
+  assert.deepEqual(migrated.ideas[0].workItems, [])
+  assert.deepEqual(migrated.ideas[0].notes, [])
+  assert.equal(migrated.profile.currentLevel, 'specialist')
 })
 
-test('insights reflect the idea to win to report loop', () => {
-  const insights = computeInsights({
-    ideas: [{ status: 'inbox' }, { status: 'won' }],
-    wins: [{ reportReady: true, competencyIds: ['analytics'] }],
-    reports: [{ id: 'report-1' }],
-  })
-  assert.deepEqual(insights, {
-    activeIdeas: 1,
-    exploredIdeas: 0,
-    wins: 1,
-    reportReadyWins: 1,
-    reports: 1,
-    topCompetencies: [{ id: 'analytics', count: 1 }],
-  })
+test('progress is evidence coverage rather than an official checklist score', () => {
+  const progress = computeProgress({
+    profile: { currentLevel: 'specialist' },
+    ideas: [{ competencyIds: ['analytics'], levelSignal: 'senior', behaviorRefs: ['analytics:senior:0'], workItems: [{ status: 'done' }] }],
+    wins: [{ competencyIds: ['pr'], levelSignal: 'lead', behaviorRefs: ['pr:lead:0'] }],
+  }, competencies)
+  assert.equal(progress.coverage.senior, 50)
+  assert.equal(progress.coverage.lead, 50)
+  assert.equal(progress.competencies.find((row) => row.competencyId === 'analytics').completedWork, 1)
+})
+
+test('coach notes surface next-level behavior and work ready for a win', () => {
+  const state = {
+    profile: { currentLevel: 'specialist' },
+    ideas: [{
+      id: 'idea-1',
+      title: 'Стратегия команды',
+      status: 'exploring',
+      levelSignal: 'lead',
+      levelReason: 'Масштабирование команды',
+      workItems: [{ status: 'done' }, { status: 'done' }],
+      updatedAt: '2026-08-04T00:00:00Z',
+    }],
+    wins: [],
+  }
+  const notes = buildCoachNotes(state, competencies, new Date('2026-08-04T12:00:00Z'))
+  assert.equal(notes[0].kind, 'level')
+  assert.equal(notes[1].kind, 'win')
 })

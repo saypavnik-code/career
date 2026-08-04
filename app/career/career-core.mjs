@@ -1,8 +1,10 @@
-export const STORAGE_KEY = 'career-os:v2'
+export const STORAGE_KEY = 'escada:v3'
+export const PREVIOUS_STORAGE_KEYS = ['career-os:v2', 'career-os:v1']
 export const LEGACY_STORAGE_KEY = 'career-os:v1'
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const LEVEL_ORDER = ['specialist', 'senior', 'lead']
 
 export function createId(prefix = 'item') {
   const random = Math.random().toString(36).slice(2, 8)
@@ -15,6 +17,13 @@ export function todayIso(now = new Date()) {
 
 export function normalizeText(value = '') {
   return String(value).trim().toLocaleLowerCase('ru-RU')
+}
+
+function tokenize(value = '') {
+  return normalizeText(value)
+    .replace(/[^a-zа-яё0-9]+/giu, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length >= 4)
 }
 
 export function suggestCompetencyIds(text, competencies, keywordMap, limit = 3) {
@@ -35,12 +44,80 @@ export function suggestCompetencyIds(text, competencies, keywordMap, limit = 3) 
     .map((item) => item.id)
 }
 
+const LEVEL_PATTERNS = {
+  specialist: [
+    'подготов', 'собрат', 'обнов', 'опубликов', 'провер', 'напис', 'запуст', 'монитор', 'выполн', 'локализ', 'создат',
+  ],
+  senior: [
+    'гипотез', 'эксперимент', 'оптимиз', 'проанализ', 'адаптир', 'управ', 'метрик', 'конверси', 'процесс', 'инициатив', 'a/b', 'пилот', 'причин', 'кросс',
+  ],
+  lead: [
+    'стратег', 'методолог', 'стандарт', 'масштаб', 'команд', 'рынок', 'регион', 'портфел', 'бюджет', 'архитект', 'долгосроч', 'культур', 'прогноз', 'экосистем', 'направлен',
+  ],
+}
+
+export function inferLevelSignal(text, fallback = 'specialist') {
+  const haystack = normalizeText(text)
+  if (!haystack) {
+    return { level: fallback, reason: 'Уровень пока основан на текущем профиле: добавьте контекст и ход работы для более точной подсказки.' }
+  }
+
+  const scores = Object.fromEntries(LEVEL_ORDER.map((level) => [level, 0]))
+  for (const [level, patterns] of Object.entries(LEVEL_PATTERNS)) {
+    for (const pattern of patterns) {
+      if (haystack.includes(pattern)) scores[level] += 1
+    }
+  }
+
+  const winner = [...LEVEL_ORDER].sort((a, b) => scores[b] - scores[a] || LEVEL_ORDER.indexOf(b) - LEVEL_ORDER.indexOf(a))[0]
+  if (scores[winner] === 0) {
+    return { level: fallback, reason: 'Недостаточно текстовых сигналов для уверенного вывода; используем уровень профиля как нейтральную отправную точку.' }
+  }
+
+  const reasons = {
+    specialist: 'Похоже на качественное исполнение, подготовку или запуск конкретного результата.',
+    senior: 'В идее видны самостоятельная гипотеза, оптимизация процесса или управление измеримым результатом.',
+    lead: 'Идея затрагивает стратегию, стандарты, масштабирование, команду или долгосрочное развитие направления.',
+  }
+  return { level: winner, reason: reasons[winner] }
+}
+
+function behaviorRef(competencyId, level, index) {
+  return `${competencyId}:${level}:${index}`
+}
+
+export function parseBehaviorRef(ref) {
+  const [competencyId, level, rawIndex] = String(ref).split(':')
+  return { competencyId, level, index: Number(rawIndex) }
+}
+
+export function suggestBehaviorRefs(text, competencyIds, competencies, level, limit = 4) {
+  const haystackTokens = new Set(tokenize(text))
+  const candidates = []
+
+  for (const competencyId of competencyIds ?? []) {
+    const competency = (competencies ?? []).find((item) => item.id === competencyId)
+    const signals = competency?.levels?.[level] ?? []
+    signals.forEach((signal, index) => {
+      const signalTokens = tokenize(signal)
+      const overlap = signalTokens.reduce((total, token) => total + (haystackTokens.has(token) ? 1 : 0), 0)
+      const score = overlap + (index === 0 ? 0.05 : 0)
+      candidates.push({ ref: behaviorRef(competencyId, level, index), score })
+    })
+  }
+
+  const positive = candidates.filter((item) => item.score > 0.1)
+  const source = positive.length ? positive : candidates.slice(0, Math.min(competencyIds?.length ?? 0, 2))
+  return source.sort((a, b) => b.score - a.score).slice(0, limit).map((item) => item.ref)
+}
+
 export function computeInsights(state) {
   const ideas = Array.isArray(state?.ideas) ? state.ideas : []
   const wins = Array.isArray(state?.wins) ? state.wins : []
   const reports = Array.isArray(state?.reports) ? state.reports : []
   const activeIdeas = ideas.filter((idea) => idea.status !== 'archived' && idea.status !== 'won')
   const reportReadyWins = wins.filter((win) => win.reportReady !== false)
+  const completedWork = ideas.flatMap((idea) => idea.workItems ?? []).filter((item) => item.status === 'done')
 
   const competencyCounts = new Map()
   for (const win of wins) {
@@ -60,19 +137,26 @@ export function computeInsights(state) {
     wins: wins.length,
     reportReadyWins: reportReadyWins.length,
     reports: reports.length,
+    completedWork: completedWork.length,
     topCompetencies,
   }
 }
 
 export function promoteIdeaToWin(idea, patch = {}) {
   if (!idea || !idea.id) throw new Error('A valid idea is required')
+  const completedWork = (idea.workItems ?? []).filter((item) => item.status === 'done').map((item) => item.title)
+  const recentNotes = (idea.notes ?? []).slice(-3).map((item) => item.text)
   return {
     id: patch.id ?? createId('win'),
     title: patch.title ?? idea.title,
     impact: patch.impact ?? '',
     evidence: patch.evidence ?? '',
     competencyIds: patch.competencyIds ?? idea.competencyIds ?? [],
+    behaviorRefs: patch.behaviorRefs ?? idea.behaviorRefs ?? [],
+    levelSignal: patch.levelSignal ?? idea.levelSignal ?? 'specialist',
     sourceIdeaId: idea.id,
+    workSummary: patch.workSummary ?? completedWork,
+    noteSummary: patch.noteSummary ?? recentNotes,
     date: patch.date ?? todayIso(),
     reportReady: patch.reportReady ?? true,
     createdAt: patch.createdAt ?? new Date().toISOString(),
@@ -92,8 +176,9 @@ export function selectWinsForPeriod(wins, start, end) {
     .sort((a, b) => String(b.date).localeCompare(String(a.date)))
 }
 
-export function buildReportMarkdown({ profile, wins, competencies, periodLabel, nextFocus = '' }) {
+export function buildReportMarkdown({ profile, wins, ideas = [], competencies, periodLabel, nextFocus = '' }) {
   const safeWins = Array.isArray(wins) ? wins : []
+  const ideaById = new Map((ideas ?? []).map((item) => [item.id, item]))
   const competencyById = new Map((competencies ?? []).map((item) => [item.id, item.shortTitle ?? item.title]))
   const title = `Отчёт о результатах — ${periodLabel}`
   const roleLine = [profile?.role, profile?.market].filter(Boolean).join(' · ')
@@ -104,12 +189,20 @@ export function buildReportMarkdown({ profile, wins, competencies, periodLabel, 
           .map((id) => competencyById.get(id))
           .filter(Boolean)
           .join(', ')
+        const sourceIdea = win.sourceIdeaId ? ideaById.get(win.sourceIdeaId) : null
+        const completedWork = win.workSummary?.length
+          ? win.workSummary
+          : (sourceIdea?.workItems ?? []).filter((item) => item.status === 'done').map((item) => item.title)
         const details = [
           win.impact ? `Влияние: ${win.impact}` : '',
           win.evidence ? `Доказательство: ${win.evidence}` : '',
           competenciesText ? `Связанные компетенции: ${competenciesText}` : '',
+          win.levelSignal ? `Сигнал уровня: ${levelLabel(win.levelSignal)}` : '',
         ].filter(Boolean)
-        return `${index + 1}. **${win.title}**\n${details.map((item) => `   - ${item}`).join('\n')}`
+        const workBlock = completedWork?.length
+          ? `\n   - Проделанная работа:\n${completedWork.map((item) => `     - ${item}`).join('\n')}`
+          : ''
+        return `${index + 1}. **${win.title}**\n${details.map((item) => `   - ${item}`).join('\n')}${workBlock}`
       }).join('\n\n')
     : 'За выбранный период wins пока не добавлены.'
 
@@ -122,7 +215,11 @@ export function buildReportMarkdown({ profile, wins, competencies, periodLabel, 
     .map(([id, count]) => `- ${competencyById.get(id) ?? id}: ${count} подтверждён${count === 1 ? 'ный win' : 'ных wins'}`)
     .join('\n') || '- Недостаточно данных: добавьте компетенции к wins, когда связь очевидна.'
 
-  return `# ${title}\n\n${profile?.name ? `**Сотрудник:** ${profile.name}\n` : ''}${roleLine ? `**Контекст:** ${roleLine}\n` : ''}\n## Краткое резюме\n\nЗа период зафиксировано ${safeWins.length} ${pluralizeRu(safeWins.length, 'результативное достижение', 'результативных достижения', 'результативных достижений')}. Ниже перечислены результаты, их влияние и доказательства.\n\n## Основные wins\n\n${impactLines}\n\n## Сигналы развития компетенций\n\n${signals}\n\n## Следующий фокус\n\n${nextFocus || 'Определить 1–3 идеи, которые могут привести к следующему измеримому результату.'}\n`
+  return `# ${title}\n\n${profile?.name ? `**Сотрудник:** ${profile.name}\n` : ''}${roleLine ? `**Контекст:** ${roleLine}\n` : ''}\n## Краткое резюме\n\nЗа период зафиксировано ${safeWins.length} ${pluralizeRu(safeWins.length, 'результативное достижение', 'результативных достижения', 'результативных достижений')}. Ниже перечислены результаты, их влияние, доказательства и выполненная работа.\n\n## Основные wins\n\n${impactLines}\n\n## Сигналы развития компетенций\n\n${signals}\n\n## Следующий фокус\n\n${nextFocus || 'Определить 1–3 идеи, которые могут привести к следующему измеримому результату.'}\n`
+}
+
+function levelLabel(level) {
+  return { specialist: 'Специалист', senior: 'Старший специалист', lead: 'Ведущий специалист' }[level] ?? level
 }
 
 export function pluralizeRu(value, one, few, many) {
@@ -134,6 +231,119 @@ export function pluralizeRu(value, one, few, many) {
   return many
 }
 
+export function computeProgress(state, competencies) {
+  const ideas = Array.isArray(state?.ideas) ? state.ideas : []
+  const wins = Array.isArray(state?.wins) ? state.wins : []
+  const total = Math.max(1, competencies?.length ?? 0)
+  const levelSets = Object.fromEntries(LEVEL_ORDER.map((level) => [level, new Set()]))
+  const byCompetency = new Map((competencies ?? []).map((item) => [item.id, {
+    competencyId: item.id,
+    ideas: 0,
+    wins: 0,
+    completedWork: 0,
+    highestLevel: null,
+    behaviorRefs: new Set(),
+  }]))
+
+  function register(artifact, weight = 'idea') {
+    const level = LEVEL_ORDER.includes(artifact.levelSignal) ? artifact.levelSignal : 'specialist'
+    for (const competencyId of artifact.competencyIds ?? []) {
+      levelSets[level].add(competencyId)
+      const row = byCompetency.get(competencyId)
+      if (!row) continue
+      if (weight === 'win') row.wins += 1
+      else row.ideas += 1
+      row.completedWork += (artifact.workItems ?? []).filter((item) => item.status === 'done').length
+      if (!row.highestLevel || LEVEL_ORDER.indexOf(level) > LEVEL_ORDER.indexOf(row.highestLevel)) row.highestLevel = level
+      for (const ref of artifact.behaviorRefs ?? []) row.behaviorRefs.add(ref)
+    }
+  }
+
+  ideas.forEach((idea) => register(idea, 'idea'))
+  wins.forEach((win) => register(win, 'win'))
+
+  const weighted = { specialist: 0, senior: 0, lead: 0 }
+  for (const idea of ideas) weighted[idea.levelSignal ?? 'specialist'] += 1
+  for (const win of wins) weighted[win.levelSignal ?? 'specialist'] += 3
+  const evidenceCount = ideas.length + wins.length * 3
+  const inferredLevel = evidenceCount < 3
+    ? state?.profile?.currentLevel ?? 'specialist'
+    : [...LEVEL_ORDER].sort((a, b) => weighted[b] - weighted[a] || LEVEL_ORDER.indexOf(b) - LEVEL_ORDER.indexOf(a))[0]
+  const confidence = evidenceCount >= 12 ? 'high' : evidenceCount >= 5 ? 'medium' : 'low'
+
+  return {
+    coverage: Object.fromEntries(LEVEL_ORDER.map((level) => [level, Math.round(levelSets[level].size / total * 100)])),
+    coveredCounts: Object.fromEntries(LEVEL_ORDER.map((level) => [level, levelSets[level].size])),
+    inferredLevel,
+    confidence,
+    evidenceCount,
+    competencies: [...byCompetency.values()].map((row) => ({ ...row, behaviorRefs: [...row.behaviorRefs] })),
+  }
+}
+
+export function buildCoachNotes(state, competencies, now = new Date()) {
+  const ideas = Array.isArray(state?.ideas) ? state.ideas : []
+  const wins = Array.isArray(state?.wins) ? state.wins : []
+  const profileLevel = state?.profile?.currentLevel ?? 'specialist'
+  const notes = []
+
+  const nextLevelIdea = ideas.find((idea) => (
+    idea.status !== 'won' && idea.status !== 'archived' && LEVEL_ORDER.indexOf(idea.levelSignal ?? 'specialist') > LEVEL_ORDER.indexOf(profileLevel)
+  ))
+  if (nextLevelIdea) {
+    notes.push({
+      kind: 'level',
+      title: `Сигнал следующего уровня: ${levelLabel(nextLevelIdea.levelSignal)}`,
+      text: `Идея «${nextLevelIdea.title}» выходит за рамки текущего уровня профиля. ${nextLevelIdea.levelReason ?? ''}`.trim(),
+      ideaId: nextLevelIdea.id,
+    })
+  }
+
+  const readyIdea = ideas.find((idea) => idea.status !== 'won' && (idea.workItems ?? []).filter((item) => item.status === 'done').length >= 2)
+  if (readyIdea) {
+    notes.push({
+      kind: 'win',
+      title: 'Похоже, здесь уже формируется win',
+      text: `В идее «${readyIdea.title}» завершено несколько этапов работы. Проверьте, появилось ли изменение, которое стоит зафиксировать.`,
+      ideaId: readyIdea.id,
+    })
+  }
+
+  const staleIdea = ideas.find((idea) => {
+    if (idea.status !== 'exploring') return false
+    const updated = new Date(idea.updatedAt ?? idea.createdAt ?? now).getTime()
+    return now.getTime() - updated > 14 * DAY_MS
+  })
+  if (staleIdea) {
+    notes.push({
+      kind: 'stale',
+      title: 'Идея давно без движения',
+      text: `«${staleIdea.title}» не обновлялась больше двух недель. Добавьте следующий этап, перенесите в архив или сформулируйте win.`,
+      ideaId: staleIdea.id,
+    })
+  }
+
+  const weakWin = wins.find((win) => !win.evidence?.trim())
+  if (weakWin) {
+    notes.push({
+      kind: 'evidence',
+      title: 'Усилите доказательство результата',
+      text: `У win «${weakWin.title}» пока нет артефакта, метрики или обратной связи. Это сделает будущий отчёт убедительнее.`,
+      winId: weakWin.id,
+    })
+  }
+
+  if (!notes.length) {
+    const progress = computeProgress(state, competencies)
+    notes.push({
+      kind: 'reflection',
+      title: `Текущий профиль сигналов: ${levelLabel(progress.inferredLevel)}`,
+      text: 'Это не формальная оценка. Она основана только на записанных идеях, выполненной работе и wins — добавляйте контекст, чтобы подсказки становились точнее.',
+    })
+  }
+  return notes.slice(0, 3)
+}
+
 export function createDefaultState(now = new Date()) {
   const end = new Date(now.getTime() + 90 * DAY_MS)
   return {
@@ -143,6 +353,7 @@ export function createDefaultState(now = new Date()) {
       name: '',
       role: 'Digital Marketing Specialist',
       market: '',
+      currentLevel: 'specialist',
       reportingRhythm: 'monthly',
       cycleEnd: end.toISOString().slice(0, 10),
     },
@@ -163,6 +374,7 @@ export function demoState(now = new Date()) {
       name: 'Павел',
       role: 'Digital Marketing Manager',
       market: 'Бразилия',
+      currentLevel: 'senior',
       reportingRhythm: 'monthly',
     },
     ideas: [
@@ -170,9 +382,18 @@ export function demoState(now = new Date()) {
         id: 'idea-demo-1',
         title: 'Собрать PR-угол вокруг собственных данных для PME',
         details: 'Найти неожиданный вывод в исследовании и превратить его в локальный медиапитч.',
-        nextStep: 'Выбрать 3 факта и проверить интерес через 5 журналистов.',
+        nextStep: 'Проверить интерес через пять журналистов.',
         status: 'exploring',
         competencyIds: ['strategic-thinking', 'pr-reputation', 'analytics'],
+        levelSignal: 'senior',
+        levelReason: 'Есть самостоятельная гипотеза, проверка через рынок и измеримый результат.',
+        behaviorRefs: ['strategic-thinking:senior:1', 'pr-reputation:senior:1'],
+        workItems: [
+          { id: 'work-demo-1', title: 'Выбрать 3 сильных факта исследования', status: 'done', createdAt: new Date(now.getTime() - 5 * DAY_MS).toISOString(), completedAt: new Date(now.getTime() - 4 * DAY_MS).toISOString() },
+          { id: 'work-demo-2', title: 'Собрать список из 15 релевантных СМИ', status: 'doing', createdAt: new Date(now.getTime() - 3 * DAY_MS).toISOString(), completedAt: null },
+          { id: 'work-demo-3', title: 'Провести тестовый outreach', status: 'backlog', createdAt: new Date(now.getTime() - 2 * DAY_MS).toISOString(), completedAt: null },
+        ],
+        notes: [{ id: 'note-demo-1', text: 'Лучше работает угол про потерю времени, а не про удалённую работу как таковую.', createdAt: new Date(now.getTime() - 2 * DAY_MS).toISOString() }],
         createdAt: new Date(now.getTime() - 5 * DAY_MS).toISOString(),
         updatedAt: new Date(now.getTime() - 2 * DAY_MS).toISOString(),
       },
@@ -183,6 +404,11 @@ export function demoState(now = new Date()) {
         nextStep: 'Сделать прототип на одном рекламном аккаунте.',
         status: 'inbox',
         competencyIds: ['analytics', 'paid-acquisition'],
+        levelSignal: 'senior',
+        levelReason: 'Идея про оптимизацию процесса и самостоятельный эксперимент.',
+        behaviorRefs: ['analytics:senior:0'],
+        workItems: [],
+        notes: [],
         createdAt: new Date(now.getTime() - 1 * DAY_MS).toISOString(),
         updatedAt: new Date(now.getTime() - 1 * DAY_MS).toISOString(),
       },
@@ -194,7 +420,11 @@ export function demoState(now = new Date()) {
         impact: 'Упростил управление группами и создал основу для более точной оптимизации CPA и retention.',
         evidence: 'Новая структура кампаний, список минус-слов и план A/B-тестов согласованы с командой.',
         competencyIds: ['paid-acquisition', 'analytics', 'ownership'],
+        behaviorRefs: ['paid-acquisition:senior:0', 'analytics:senior:1'],
+        levelSignal: 'senior',
         sourceIdeaId: null,
+        workSummary: ['Провёл аудит поисковых запросов', 'Разделил кампании по намерению', 'Собрал план A/B-тестов'],
+        noteSummary: [],
         date: day(12),
         reportReady: true,
         createdAt: new Date(now.getTime() - 12 * DAY_MS).toISOString(),
@@ -205,7 +435,11 @@ export function demoState(now = new Date()) {
         impact: 'Команда получила единый шаблон hook, структуры, CTA и alt-text для рынка Бразилии.',
         evidence: 'Гайд используется в регулярном контент-плане и уменьшает число редакторских итераций.',
         competencyIds: ['content-marketing', 'smm-community', 'intercultural'],
+        behaviorRefs: ['content-marketing:lead:1'],
+        levelSignal: 'lead',
         sourceIdeaId: null,
+        workSummary: ['Собрал лучшие практики', 'Провёл тест форматов', 'Оформил единый гайд'],
+        noteSummary: [],
         date: day(28),
         reportReady: true,
         createdAt: new Date(now.getTime() - 28 * DAY_MS).toISOString(),
@@ -214,8 +448,46 @@ export function demoState(now = new Date()) {
   }
 }
 
-function migrateLegacyTask(task) {
+function normalizeIdea(idea, fallbackLevel = 'specialist') {
+  const text = `${idea?.title ?? ''} ${idea?.details ?? ''} ${idea?.nextStep ?? ''}`
+  const inferred = inferLevelSignal(text, fallbackLevel)
   return {
+    id: idea?.id ?? createId('idea'),
+    title: idea?.title ?? 'Импортированная идея',
+    details: idea?.details ?? '',
+    nextStep: idea?.nextStep ?? '',
+    status: idea?.status ?? 'inbox',
+    competencyIds: Array.isArray(idea?.competencyIds) ? idea.competencyIds : [],
+    levelSignal: idea?.levelSignal ?? inferred.level,
+    levelReason: idea?.levelReason ?? inferred.reason,
+    behaviorRefs: Array.isArray(idea?.behaviorRefs) ? idea.behaviorRefs : [],
+    workItems: Array.isArray(idea?.workItems) ? idea.workItems : [],
+    notes: Array.isArray(idea?.notes) ? idea.notes : [],
+    createdAt: idea?.createdAt ?? new Date().toISOString(),
+    updatedAt: idea?.updatedAt ?? new Date().toISOString(),
+  }
+}
+
+function normalizeWin(win) {
+  return {
+    id: win?.id ?? createId('win'),
+    title: win?.title ?? 'Импортированный win',
+    impact: win?.impact ?? '',
+    evidence: win?.evidence ?? '',
+    competencyIds: Array.isArray(win?.competencyIds) ? win.competencyIds : [],
+    behaviorRefs: Array.isArray(win?.behaviorRefs) ? win.behaviorRefs : [],
+    levelSignal: win?.levelSignal ?? 'specialist',
+    sourceIdeaId: win?.sourceIdeaId ?? null,
+    workSummary: Array.isArray(win?.workSummary) ? win.workSummary : [],
+    noteSummary: Array.isArray(win?.noteSummary) ? win.noteSummary : [],
+    date: win?.date ?? todayIso(),
+    reportReady: win?.reportReady !== false,
+    createdAt: win?.createdAt ?? new Date().toISOString(),
+  }
+}
+
+function migrateLegacyTask(task, fallbackLevel) {
+  return normalizeIdea({
     id: `legacy-${task.id ?? createId('idea')}`,
     title: task.title ?? 'Импортированная идея',
     details: task.potentialWin ? `Ожидаемый результат: ${task.potentialWin}` : '',
@@ -224,18 +496,21 @@ function migrateLegacyTask(task) {
     competencyIds: task.competencyId ? [task.competencyId] : [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  }
+  }, fallbackLevel)
 }
 
 export function migrateState(raw, fallback = createDefaultState()) {
   if (!raw || typeof raw !== 'object') return fallback
-  if (raw.version === SCHEMA_VERSION && Array.isArray(raw.ideas) && Array.isArray(raw.wins)) {
+  const fallbackLevel = raw?.profile?.currentLevel ?? fallback.profile.currentLevel
+
+  if (Array.isArray(raw.ideas) && Array.isArray(raw.wins)) {
     return {
       ...fallback,
       ...raw,
-      profile: { ...fallback.profile, ...(raw.profile ?? {}) },
-      ideas: raw.ideas,
-      wins: raw.wins,
+      version: SCHEMA_VERSION,
+      profile: { ...fallback.profile, ...(raw.profile ?? {}), currentLevel: fallbackLevel },
+      ideas: raw.ideas.map((idea) => normalizeIdea(idea, fallbackLevel)),
+      wins: raw.wins.map(normalizeWin),
       reports: Array.isArray(raw.reports) ? raw.reports : [],
     }
   }
@@ -245,19 +520,9 @@ export function migrateState(raw, fallback = createDefaultState()) {
   return {
     ...fallback,
     onboardingComplete: Boolean(raw.profile),
-    profile: { ...fallback.profile, ...(raw.profile ?? {}) },
-    ideas: legacyTasks.map(migrateLegacyTask),
-    wins: legacyWins.map((win) => ({
-      id: win.id ?? createId('win'),
-      title: win.title ?? 'Импортированный win',
-      impact: win.impact ?? '',
-      evidence: win.evidence ?? '',
-      competencyIds: win.competencyIds ?? [],
-      sourceIdeaId: null,
-      date: win.date ?? todayIso(),
-      reportReady: true,
-      createdAt: new Date().toISOString(),
-    })),
+    profile: { ...fallback.profile, ...(raw.profile ?? {}), currentLevel: fallbackLevel },
+    ideas: legacyTasks.map((task) => migrateLegacyTask(task, fallbackLevel)),
+    wins: legacyWins.map(normalizeWin),
     reports: [],
   }
 }

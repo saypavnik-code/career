@@ -1,13 +1,15 @@
 {
-  "name": "career-os",
-  "version": "0.1.0",
+  "name": "escada",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test:career": "node --test tests/career-core.test.mjs",
-    "verify:career": "node --test tests/career-core.test.mjs && next build"
+    "test:career": "npm run test:escada",
+    "verify:career": "npm run verify:escada",
+    "test:escada": "node --test tests/career-core.test.mjs",
+    "verify:escada": "npm run test:escada && next build"
   },
   "dependencies": {
     "next": "^15.2.0",
