@@ -529,3 +529,93 @@
 @media (prefers-reduced-motion: reduce) {
   .aiMiniButton, .suggestionBar button { transition: none; }
 }
+
+/* escada-ui-guidance-v10: August polish, readable coaching and local scale guidance */
+.promptCard {
+  align-items: flex-start;
+  min-width: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 92% 8%, rgba(255,255,255,.72), transparent 32%),
+    linear-gradient(120deg, #e7ff9c 0%, var(--lime) 100%);
+  box-shadow: 0 18px 48px rgba(122, 150, 39, .14);
+}
+.promptCardCopy { display: grid; gap: 10px; min-width: 0; flex: 1 1 auto; max-width: 68ch; }
+.promptCardCopy h3 { margin: 0; max-width: none; overflow-wrap: anywhere; text-wrap: balance; line-height: 1.08; }
+.promptCardCopy p { margin: 0; max-width: 64ch; color: rgba(21,23,42,.72); font-size: 13px; line-height: 1.62; overflow-wrap: anywhere; }
+.promptCard > button { flex: 0 0 auto; box-shadow: 0 12px 26px rgba(21,23,42,.18); transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease; }
+.promptCard > button:hover { transform: translateY(-2px); background: var(--accent-dark); box-shadow: 0 16px 34px rgba(81,64,220,.28); }
+
+.addInline { align-items: stretch; gap: 10px; }
+.addInline input, .addInline textarea { min-height: 46px; border-radius: 15px; transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease; }
+.addInline input:focus, .addInline textarea:focus { border-color: rgba(110,92,246,.62); box-shadow: 0 0 0 4px rgba(110,92,246,.10); background: #fff; }
+.addInline button {
+  min-width: 112px;
+  min-height: 46px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: #fff;
+  padding: 11px 18px;
+  box-shadow: 0 12px 26px rgba(81,64,220,.22), inset 0 1px 0 rgba(255,255,255,.22);
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+.addInline button:hover { transform: translateY(-2px); filter: saturate(1.08); box-shadow: 0 16px 34px rgba(81,64,220,.30), 0 0 0 4px rgba(110,92,246,.09); }
+.addInline button:active { transform: translateY(0); box-shadow: 0 8px 18px rgba(81,64,220,.22); }
+
+.miniKanban { gap: 14px; align-items: start; }
+.kanbanColumn {
+  overflow: visible;
+  border-radius: 20px;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(247,248,252,.94));
+  box-shadow: 0 12px 30px rgba(23,25,39,.055);
+}
+.kanbanColumn[data-status="backlog"] { border-color: rgba(110,92,246,.20); }
+.kanbanColumn[data-status="doing"] { border-color: rgba(234,170,45,.26); }
+.kanbanColumn[data-status="done"] { border-color: rgba(63,151,103,.25); }
+.kanbanHeader { min-height: 42px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; padding: 5px 5px 12px; }
+.kanbanHeader strong { font-size: 12px; letter-spacing: -.01em; color: var(--ink); }
+.kanbanStatusDot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px rgba(110,92,246,.10), 0 0 16px rgba(110,92,246,.30); }
+.kanbanColumn[data-status="doing"] .kanbanStatusDot { background: #eaaa2d; box-shadow: 0 0 0 5px rgba(234,170,45,.11), 0 0 16px rgba(234,170,45,.28); }
+.kanbanColumn[data-status="done"] .kanbanStatusDot { background: #3f9767; box-shadow: 0 0 0 5px rgba(63,151,103,.11), 0 0 16px rgba(63,151,103,.25); }
+.kanbanCount { min-width: 25px; height: 25px; display: grid; place-items: center; border-radius: 999px; background: #eef0f7; color: var(--muted); font-size: 10px; font-weight: 900; }
+.kanbanItems { display: grid; gap: 9px; }
+.kanbanItems > small { padding: 20px 8px; color: #979dad; text-align: center; font-size: 10px; }
+.workItem { border-radius: 15px; padding: 13px; border-color: rgba(23,25,39,.075); box-shadow: 0 8px 20px rgba(23,25,39,.05); transition: transform 170ms ease, box-shadow 170ms ease, border-color 170ms ease; }
+.workItem:hover { transform: translateY(-2px); border-color: rgba(110,92,246,.22); box-shadow: 0 14px 28px rgba(45,38,99,.09); }
+.workItem p { font-size: 11px; line-height: 1.48; }
+.workItem div { display: flex; justify-content: flex-end; gap: 7px; }
+.kanbanMoveButton { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid rgba(110,92,246,.18) !important; border-radius: 999px !important; background: rgba(110,92,246,.08) !important; color: var(--accent-dark) !important; font-size: 15px; cursor: pointer; transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease; }
+.kanbanMoveButton:hover { transform: translateY(-1px) scale(1.04); background: rgba(110,92,246,.15) !important; box-shadow: 0 0 0 4px rgba(110,92,246,.08), 0 8px 18px rgba(81,64,220,.13); }
+
+.reportLayout { grid-template-columns: 1fr; }
+.reportBuilder { display: grid; gap: 6px; }
+.reportBuilder .reportWins { max-height: 420px; }
+.reportActionRow { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.reportActionRow p { margin: 0; max-width: 62ch; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.reportActionRow button { flex: 0 0 auto; }
+.reportEditorPanel { border-radius: 28px; padding: clamp(22px, 4vw, 34px); background: linear-gradient(145deg, #181a2e, #111321); color: #fff; box-shadow: 0 24px 62px rgba(17,19,33,.20); }
+.reportEditorPanel .sectionHeader { margin-bottom: 20px; }
+.reportEditorPanel .eyebrow { color: rgba(255,255,255,.58); }
+.reportEditorPanel h3 { color: #fff; }
+.reportEditorPanel .sectionHeader p { margin: 8px 0 0; color: rgba(255,255,255,.62); font-size: 12px; line-height: 1.55; }
+.reportEditorTextarea { width: 100%; min-height: 620px; border: 1px solid rgba(255,255,255,.12); border-radius: 20px; background: rgba(8,10,19,.62); color: #f7f8fc; padding: clamp(18px, 3vw, 28px); resize: vertical; outline: none; font: 14px/1.72 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; box-shadow: inset 0 1px 0 rgba(255,255,255,.04); transition: border-color 160ms ease, box-shadow 160ms ease; }
+.reportEditorTextarea:focus { border-color: rgba(215,255,97,.56); box-shadow: 0 0 0 4px rgba(215,255,97,.08), inset 0 1px 0 rgba(255,255,255,.05); }
+.reportEditorActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.reportEditorPanel .secondaryButton { border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.07); color: #fff; }
+.reportEditorPanel .secondaryButton:hover { border-color: rgba(215,255,97,.48); color: var(--lime); }
+.reportEditorPanel .primaryButton { background: var(--lime); color: var(--navy); box-shadow: 0 12px 26px rgba(215,255,97,.15); }
+.reportEditorPanel .primaryButton:hover { background: #e1ff82; box-shadow: 0 16px 34px rgba(215,255,97,.22); }
+
+@media (max-width: 780px) {
+  .promptCard { flex-direction: column; }
+  .promptCard > button { width: 100%; }
+  .reportActionRow { align-items: stretch; flex-direction: column; }
+  .reportActionRow button { width: 100%; }
+  .reportEditorTextarea { min-height: 480px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .promptCard > button, .addInline button, .workItem, .kanbanMoveButton { transition: none; }
+}
+
