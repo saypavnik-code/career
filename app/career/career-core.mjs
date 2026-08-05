@@ -1,7 +1,7 @@
-export const STORAGE_KEY = 'escada:v3'
-export const PREVIOUS_STORAGE_KEYS = ['career-os:v2', 'career-os:v1']
+export const STORAGE_KEY = 'escada:v4'
+export const PREVIOUS_STORAGE_KEYS = ['escada:v3', 'career-os:v2', 'career-os:v1']
 export const LEGACY_STORAGE_KEY = 'career-os:v1'
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const LEVEL_ORDER = ['specialist', 'senior', 'lead']
@@ -99,10 +99,12 @@ export function suggestBehaviorRefs(text, competencyIds, competencies, level, li
     const competency = (competencies ?? []).find((item) => item.id === competencyId)
     const signals = competency?.levels?.[level] ?? []
     signals.forEach((signal, index) => {
-      const signalTokens = tokenize(signal)
+      const signalText = typeof signal === 'string' ? signal : signal.text
+      const signalRef = typeof signal === 'string' ? behaviorRef(competencyId, level, index) : signal.id
+      const signalTokens = tokenize(signalText)
       const overlap = signalTokens.reduce((total, token) => total + (haystackTokens.has(token) ? 1 : 0), 0)
       const score = overlap + (index === 0 ? 0.05 : 0)
-      candidates.push({ ref: behaviorRef(competencyId, level, index), score })
+      candidates.push({ ref: signalRef, score })
     })
   }
 
@@ -115,6 +117,7 @@ export function computeInsights(state) {
   const ideas = Array.isArray(state?.ideas) ? state.ideas : []
   const wins = Array.isArray(state?.wins) ? state.wins : []
   const reports = Array.isArray(state?.reports) ? state.reports : []
+  const captures = Array.isArray(state?.captures) ? state.captures : []
   const activeIdeas = ideas.filter((idea) => idea.status !== 'archived' && idea.status !== 'won')
   const reportReadyWins = wins.filter((win) => win.reportReady !== false)
   const completedWork = ideas.flatMap((idea) => idea.workItems ?? []).filter((item) => item.status === 'done')
@@ -132,6 +135,7 @@ export function computeInsights(state) {
     .map(([id, count]) => ({ id, count }))
 
   return {
+    captures: captures.length,
     activeIdeas: activeIdeas.length,
     exploredIdeas: ideas.filter((idea) => idea.status === 'exploring').length,
     wins: wins.length,
@@ -146,11 +150,12 @@ export function promoteIdeaToWin(idea, patch = {}) {
   if (!idea || !idea.id) throw new Error('A valid idea is required')
   const completedWork = (idea.workItems ?? []).filter((item) => item.status === 'done').map((item) => item.title)
   const recentNotes = (idea.notes ?? []).slice(-3).map((item) => item.text)
+  const evidenceNotes = (idea.evidenceNotes ?? []).map((item) => item.text ?? item).filter(Boolean)
   return {
     id: patch.id ?? createId('win'),
     title: patch.title ?? idea.title,
     impact: patch.impact ?? '',
-    evidence: patch.evidence ?? '',
+    evidence: patch.evidence ?? evidenceNotes.join('\n'),
     competencyIds: patch.competencyIds ?? idea.competencyIds ?? [],
     behaviorRefs: patch.behaviorRefs ?? idea.behaviorRefs ?? [],
     levelSignal: patch.levelSignal ?? idea.levelSignal ?? 'specialist',
@@ -357,6 +362,7 @@ export function createDefaultState(now = new Date()) {
       reportingRhythm: 'monthly',
       cycleEnd: end.toISOString().slice(0, 10),
     },
+    captures: [],
     ideas: [],
     wins: [],
     reports: [],
@@ -377,6 +383,9 @@ export function demoState(now = new Date()) {
       currentLevel: 'senior',
       reportingRhythm: 'monthly',
     },
+    captures: [
+      { id: 'capture-demo-1', text: 'Проверить, можно ли превратить данные исследования в серию PR-углов', suggestedKind: 'idea', status: 'unclassified', createdAt: new Date(now.getTime() - DAY_MS).toISOString() },
+    ],
     ideas: [
       {
         id: 'idea-demo-1',
@@ -394,6 +403,7 @@ export function demoState(now = new Date()) {
           { id: 'work-demo-3', title: 'Провести тестовый outreach', status: 'backlog', createdAt: new Date(now.getTime() - 2 * DAY_MS).toISOString(), completedAt: null },
         ],
         notes: [{ id: 'note-demo-1', text: 'Лучше работает угол про потерю времени, а не про удалённую работу как таковую.', createdAt: new Date(now.getTime() - 2 * DAY_MS).toISOString() }],
+        evidenceNotes: [],
         createdAt: new Date(now.getTime() - 5 * DAY_MS).toISOString(),
         updatedAt: new Date(now.getTime() - 2 * DAY_MS).toISOString(),
       },
@@ -409,6 +419,7 @@ export function demoState(now = new Date()) {
         behaviorRefs: ['analytics:senior:0'],
         workItems: [],
         notes: [],
+        evidenceNotes: [],
         createdAt: new Date(now.getTime() - 1 * DAY_MS).toISOString(),
         updatedAt: new Date(now.getTime() - 1 * DAY_MS).toISOString(),
       },
@@ -419,6 +430,8 @@ export function demoState(now = new Date()) {
         title: 'Перестроил структуру CRM-кампаний по намерению пользователя',
         impact: 'Упростил управление группами и создал основу для более точной оптимизации CPA и retention.',
         evidence: 'Новая структура кампаний, список минус-слов и план A/B-тестов согласованы с командой.',
+        metrics: '',
+        confirmedBy: 'Команда онлайн-маркетинга',
         competencyIds: ['paid-acquisition', 'analytics', 'ownership'],
         behaviorRefs: ['paid-acquisition:senior:0', 'analytics:senior:1'],
         levelSignal: 'senior',
@@ -434,6 +447,8 @@ export function demoState(now = new Date()) {
         title: 'Сформировал региональные правила LinkedIn-контента',
         impact: 'Команда получила единый шаблон hook, структуры, CTA и alt-text для рынка Бразилии.',
         evidence: 'Гайд используется в регулярном контент-плане и уменьшает число редакторских итераций.',
+        metrics: '',
+        confirmedBy: 'Контент-команда',
         competencyIds: ['content-marketing', 'smm-community', 'intercultural'],
         behaviorRefs: ['content-marketing:lead:1'],
         levelSignal: 'lead',
@@ -445,6 +460,17 @@ export function demoState(now = new Date()) {
         createdAt: new Date(now.getTime() - 28 * DAY_MS).toISOString(),
       },
     ],
+  }
+}
+
+function normalizeCapture(capture) {
+  const classification = classifyCapture(capture?.text ?? '')
+  return {
+    id: capture?.id ?? createId('capture'),
+    text: capture?.text ?? '',
+    suggestedKind: capture?.suggestedKind ?? classification.kind,
+    status: capture?.status ?? 'unclassified',
+    createdAt: capture?.createdAt ?? new Date().toISOString(),
   }
 }
 
@@ -463,6 +489,7 @@ function normalizeIdea(idea, fallbackLevel = 'specialist') {
     behaviorRefs: Array.isArray(idea?.behaviorRefs) ? idea.behaviorRefs : [],
     workItems: Array.isArray(idea?.workItems) ? idea.workItems : [],
     notes: Array.isArray(idea?.notes) ? idea.notes : [],
+    evidenceNotes: Array.isArray(idea?.evidenceNotes) ? idea.evidenceNotes : [],
     createdAt: idea?.createdAt ?? new Date().toISOString(),
     updatedAt: idea?.updatedAt ?? new Date().toISOString(),
   }
@@ -474,6 +501,8 @@ function normalizeWin(win) {
     title: win?.title ?? 'Импортированный win',
     impact: win?.impact ?? '',
     evidence: win?.evidence ?? '',
+    metrics: win?.metrics ?? '',
+    confirmedBy: win?.confirmedBy ?? '',
     competencyIds: Array.isArray(win?.competencyIds) ? win.competencyIds : [],
     behaviorRefs: Array.isArray(win?.behaviorRefs) ? win.behaviorRefs : [],
     levelSignal: win?.levelSignal ?? 'specialist',
@@ -509,6 +538,7 @@ export function migrateState(raw, fallback = createDefaultState()) {
       ...raw,
       version: SCHEMA_VERSION,
       profile: { ...fallback.profile, ...(raw.profile ?? {}), currentLevel: fallbackLevel },
+      captures: Array.isArray(raw.captures) ? raw.captures.map(normalizeCapture) : [],
       ideas: raw.ideas.map((idea) => normalizeIdea(idea, fallbackLevel)),
       wins: raw.wins.map(normalizeWin),
       reports: Array.isArray(raw.reports) ? raw.reports : [],
@@ -521,8 +551,76 @@ export function migrateState(raw, fallback = createDefaultState()) {
     ...fallback,
     onboardingComplete: Boolean(raw.profile),
     profile: { ...fallback.profile, ...(raw.profile ?? {}), currentLevel: fallbackLevel },
+    captures: [],
     ideas: legacyTasks.map((task) => migrateLegacyTask(task, fallbackLevel)),
     wins: legacyWins.map(normalizeWin),
     reports: [],
+  }
+}
+
+
+const RESULT_PATTERNS = ['получил', 'получила', 'вырос', 'снизил', 'снизила', 'запустил', 'запустила', 'согласован', 'опубликован', 'завершил', 'завершила', 'результат', 'достиг', 'достигла']
+const IDEA_PATTERNS = ['идея', 'проверить', 'попробовать', 'гипотез', 'можно ли', 'предлагаю', 'улучшить', 'создать', 'сделать', 'исследовать']
+
+export function classifyCapture(text) {
+  const value = normalizeText(text)
+  const resultScore = RESULT_PATTERNS.reduce((sum, item) => sum + (value.includes(item) ? 1 : 0), 0)
+  const ideaScore = IDEA_PATTERNS.reduce((sum, item) => sum + (value.includes(item) ? 1 : 0), 0)
+  if (resultScore > ideaScore && resultScore > 0) return { kind: 'win', reason: 'В записи есть формулировка завершённого результата.' }
+  if (ideaScore > 0) return { kind: 'idea', reason: 'В записи есть гипотеза, возможность или действие для проверки.' }
+  return { kind: 'note', reason: 'Запись сохранена как свободная заметка — тип можно выбрать позже.' }
+}
+
+export function createCapture(text, now = new Date()) {
+  const classification = classifyCapture(text)
+  return { id: createId('capture'), text: String(text).trim(), suggestedKind: classification.kind, status: 'unclassified', createdAt: now.toISOString() }
+}
+
+export function captureToIdea(capture, currentLevel = 'specialist') {
+  const inferred = inferLevelSignal(capture?.text ?? '', currentLevel)
+  const now = new Date().toISOString()
+  return {
+    id: createId('idea'), title: capture?.text ?? '', details: '', nextStep: '', status: 'inbox', competencyIds: [],
+    levelSignal: inferred.level, levelReason: inferred.reason, behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [],
+    createdAt: now, updatedAt: now,
+  }
+}
+
+export function captureToWinDraft(capture) {
+  return { sourceIdeaId: null, title: capture?.text ?? '', impact: '', evidence: '', metrics: '', confirmedBy: '', date: todayIso(), competencyIds: [], behaviorRefs: [], levelSignal: 'specialist', workSummary: [], noteSummary: [], reportReady: true }
+}
+
+export function winGapHints(win) {
+  const hints = []
+  if (!String(win?.impact ?? '').trim()) hints.push('Добавьте, почему результат важен для бизнеса, команды, пользователя или процесса.')
+  if (!String(win?.evidence ?? '').trim()) hints.push('Добавьте доказательство: артефакт, ссылку, обратную связь, метрику или принятое решение.')
+  if (!String(win?.metrics ?? '').trim()) hints.push('Если результат изменил показатель, сохраните исходное и итоговое значение. Поле необязательное.')
+  return hints.slice(0, 3)
+}
+
+export function computeGrowthPath(state, competencies) {
+  const profileLevel = state?.profile?.currentLevel ?? 'specialist'
+  const targetLevel = profileLevel === 'specialist' ? 'senior' : profileLevel === 'senior' ? 'lead' : null
+  const artifacts = [...(state?.ideas ?? []), ...(state?.wins ?? [])]
+  const observed = new Set(artifacts.flatMap((item) => item.behaviorRefs ?? []))
+  const competencyCounts = new Map()
+  for (const item of artifacts) for (const id of item.competencyIds ?? []) competencyCounts.set(id, (competencyCounts.get(id) ?? 0) + (item.impact || item.evidence ? 2 : 1))
+  const sorted = [...competencyCounts.entries()].sort((a, b) => b[1] - a[1])
+  const strongCompetencies = sorted.slice(0, 3).map(([id]) => competencies.find((item) => item.id === id)).filter(Boolean)
+  const weakCompetencies = competencies.filter((item) => !competencyCounts.has(item.id)).slice(0, 3)
+  const directions = (targetLevel ? (strongCompetencies.length ? strongCompetencies : competencies.slice(0, 3)) : strongCompetencies)
+    .slice(0, 3)
+    .map((competency) => {
+      const criteria = competency.levels[targetLevel ?? profileLevel] ?? []
+      const nextCriterion = criteria.find((criterion) => !observed.has(typeof criterion === 'string' ? criterion : criterion.id)) ?? criteria[0]
+      return { competencyId: competency.id, title: competency.shortTitle, criterion: typeof nextCriterion === 'string' ? nextCriterion : nextCriterion?.text ?? '' }
+    })
+  return {
+    currentLevel: profileLevel,
+    nextLevel: targetLevel,
+    strongSignals: strongCompetencies.map((item) => ({ id: item.id, title: item.shortTitle, count: competencyCounts.get(item.id) ?? 0 })),
+    underdocumented: weakCompetencies.map((item) => ({ id: item.id, title: item.shortTitle })),
+    directions,
+    evidenceCount: (state?.wins ?? []).filter((win) => String(win.evidence ?? '').trim()).length,
   }
 }
