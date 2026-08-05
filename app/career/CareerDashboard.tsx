@@ -33,6 +33,8 @@ import {
   winGapHints,
 } from './career-core.mjs'
 
+const ESCADA_AI_ENDPOINT = process.env.NEXT_PUBLIC_ESCADA_AI_ENDPOINT?.trim() ?? ''
+
 type View = 'today' | 'ideas' | 'wins' | 'reports' | 'growth'
 type IdeaStatus = 'inbox' | 'exploring' | 'won' | 'archived'
 type WorkStatus = 'backlog' | 'doing' | 'done'
@@ -302,7 +304,10 @@ export default function CareerDashboard() {
     setAiBusy(action)
     setAiError('')
     try {
-      const response = await fetch('/api/escada', {
+      if (!ESCADA_AI_ENDPOINT) {
+        throw new Error('ИИ пока не подключён. Укажите NEXT_PUBLIC_ESCADA_AI_ENDPOINT при сборке GitHub Pages.')
+      }
+      const response = await fetch(ESCADA_AI_ENDPOINT, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action, profile: state.profile, artifact, competencyIds }),

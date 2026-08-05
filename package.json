@@ -9,7 +9,8 @@
     "test:career": "npm run test:escada",
     "verify:career": "npm run verify:escada",
     "test:escada": "node --test tests/escada-v8.test.mjs",
-    "verify:escada": "npm run test:escada && next build"
+    "verify:escada": "npm run test:escada && next build",
+    "verify:pages": "npm run test:escada && next build"
   },
   "dependencies": {
     "next": "^15.2.0",
