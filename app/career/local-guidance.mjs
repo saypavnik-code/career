@@ -50,30 +50,77 @@ function evidenceForWin(artifact) {
   return result.length ? result.slice(0, 3) : ['Формулировка уже содержит результат, его значение и подтверждение. Проверьте только точность фактов.']
 }
 
-function buildReportDraft(artifact, criteria) {
-  const reportType = asText(artifact.reportType) || 'Отчёт'
-  const period = [asText(artifact.periodStart), asText(artifact.periodEnd)].filter(Boolean).join(' — ')
-  const wins = asArray(artifact.wins)
-  const ideas = asArray(artifact.ideas)
+function detectReportKind(reportType) {
+  const label = asText(reportType).toLowerCase()
+  if (label.includes('недел')) return 'weekly'
+  if (label.includes('performance')) return 'performance'
+  if (label.includes('promotion')) return 'promotion'
+  return 'monthly'
+}
+
+function competencySignalLines(wins, ideas) {
+  const counts = new Map()
+  for (const item of [...wins, ...ideas]) {
+    for (const id of asArray(item?.competencyIds)) {
+      const title = asText(item?.competencyTitle) || id
+      const entry = counts.get(id) ?? { title, count: 0 }
+      entry.count += 1
+      counts.set(id, entry)
+    }
+  }
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count)
+    .map((entry) => `- **${entry.title}.** ${entry.count} ${entry.count === 1 ? 'подтверждённая запись' : 'подтверждённых записи'} за период`)
+}
+
+function winBlock(win, { withWork = true } = {}) {
+  const title = asText(win?.title) || 'Результат'
+  const lines = ['', `### ${title}`]
+  if (asText(win?.impact)) lines.push('', `**Почему это важно.** ${asText(win.impact)}`)
+  if (asText(win?.evidence)) lines.push('', `**Подтверждение.** ${asText(win.evidence)}`)
+  if (asText(win?.metrics)) lines.push('', `**Изменение в цифрах.** ${asText(win.metrics)}`)
+  if (asText(win?.confirmedBy)) lines.push('', `**Кто подтвердил.** ${asText(win.confirmedBy)}`)
+  if (withWork) {
+    const work = asArray(win?.workSummary).map(asText).filter(Boolean)
+    if (work.length) lines.push('', '**Что было сделано.**', ...work.map((item) => `- ${item}`))
+  }
+  return lines
+}
+
+function buildWeeklyDraft(reportType, period, wins, ideas) {
   const lines = [`# ${reportType}`]
   if (period) lines.push('', `Период: ${period}`)
+  lines.push('', '## Коротко за неделю')
+  if (!wins.length) {
+    lines.push('', 'Выберите wins этой недели, которые стоит зафиксировать.')
+  } else {
+    for (const win of wins) {
+      const title = asText(win?.title) || 'Результат'
+      const impact = asText(win?.impact)
+      lines.push(`- **${title}**${impact ? ` — ${impact}` : ''}`)
+    }
+  }
+  if (ideas.length) {
+    lines.push('', '## В работе')
+    for (const idea of ideas) {
+      const title = asText(idea?.title) || 'Идея'
+      const nextStep = asText(idea?.nextStep)
+      lines.push(`- **${title}**${nextStep ? ` — далее: ${nextStep}` : ''}`)
+    }
+  }
+  lines.push('', '## На следующую неделю', '', 'Добавьте один конкретный фокус.')
+  return lines.join('\n')
+}
 
+function buildMonthlyDraft(reportType, period, wins, ideas, criteria) {
+  const lines = [`# ${reportType}`]
+  if (period) lines.push('', `Период: ${period}`)
   lines.push('', '## Главное за период')
   if (!wins.length) {
     lines.push('', 'Выберите wins, которые должны войти в отчёт.')
   } else {
-    for (const win of wins) {
-      const title = asText(win?.title) || 'Результат'
-      lines.push('', `### ${title}`)
-      if (asText(win?.impact)) lines.push('', `**Почему это важно.** ${asText(win.impact)}`)
-      if (asText(win?.evidence)) lines.push('', `**Подтверждение.** ${asText(win.evidence)}`)
-      if (asText(win?.metrics)) lines.push('', `**Изменение в цифрах.** ${asText(win.metrics)}`)
-      if (asText(win?.confirmedBy)) lines.push('', `**Кто подтвердил.** ${asText(win.confirmedBy)}`)
-      const work = asArray(win?.workSummary).map(asText).filter(Boolean)
-      if (work.length) lines.push('', '**Что было сделано.**', ...work.map((item) => `- ${item}`))
-    }
+    for (const win of wins) lines.push(...winBlock(win))
   }
-
   if (ideas.length) {
     lines.push('', '## Инициативы в работе')
     for (const idea of ideas) {
@@ -82,16 +129,99 @@ function buildReportDraft(artifact, criteria) {
       lines.push(`- **${title}**${nextStep ? ` — следующий шаг: ${nextStep}` : ''}`)
     }
   }
-
   if (criteria.length) {
     lines.push('', '## Сигналы профессионального роста для проверки')
-    for (const criterion of criteria.slice(0, 3)) {
-      lines.push(`- **${criterion.competencyTitle}.** ${criterion.text}`)
-    }
+    for (const criterion of criteria.slice(0, 3)) lines.push(`- **${criterion.competencyTitle}.** ${criterion.text}`)
   }
-
   lines.push('', '## Следующий фокус', '', 'Добавьте один конкретный следующий шаг после обсуждения отчёта.')
   return lines.join('\n')
+}
+
+function buildPerformanceDraft(reportType, period, wins, ideas, criteria) {
+  const lines = [`# ${reportType}`]
+  if (period) lines.push('', `Период: ${period}`)
+  lines.push(
+    '',
+    '## Резюме периода',
+    '',
+    `Зафиксировано ${wins.length} ${wins.length === 1 ? 'подтверждённый результат' : 'подтверждённых результата(ов)'} и ${ideas.length} ${ideas.length === 1 ? 'инициатива' : 'инициативы(в) в работе'}.`,
+  )
+  lines.push('', '## Результаты за период')
+  if (!wins.length) {
+    lines.push('', 'Выберите wins, которые должны войти в отчёт.')
+  } else {
+    for (const win of wins) lines.push(...winBlock(win))
+  }
+  if (ideas.length) {
+    lines.push('', '## Инициативы в работе')
+    for (const idea of ideas) {
+      const title = asText(idea?.title) || 'Идея'
+      const nextStep = asText(idea?.nextStep)
+      lines.push(`- **${title}**${nextStep ? ` — следующий шаг: ${nextStep}` : ''}`)
+    }
+  }
+  const signals = competencySignalLines(wins, ideas)
+  lines.push('', '## Сигналы по компетенциям (только из ваших записей)')
+  lines.push(...(signals.length ? signals : ['- Недостаточно данных: свяжите wins и идеи с компетенциями, когда связь очевидна.']))
+  if (criteria.length) {
+    lines.push('', '## Ожидания шкалы для проверки')
+    for (const criterion of criteria.slice(0, 4)) lines.push(`- **${criterion.competencyTitle} · ${levelLabels[criterion.level]}.** ${criterion.text}`)
+  }
+  lines.push('', '## Следующий фокус', '', 'Добавьте один конкретный следующий шаг после обсуждения отчёта.')
+  return lines.join('\n')
+}
+
+function buildPromotionDraft(reportType, period, wins, ideas, criteria, targetLabel) {
+  const lines = [`# ${reportType}`]
+  if (period) lines.push('', `Период: ${period}`)
+  lines.push(
+    '',
+    '## Обоснование',
+    '',
+    `Материалы ниже собраны только из записей сотрудника и показывают сигналы уровня «${targetLabel}». Формулировки не содержат выводов, не подтверждённых записями — при необходимости усильте их реальными цифрами и подтверждениями до отправки.`,
+  )
+  const signals = competencySignalLines(wins, ideas)
+  lines.push('', '## Сильнейшие сигналы по компетенциям')
+  lines.push(...(signals.length ? signals.slice(0, 5) : ['- Недостаточно данных: свяжите ключевые wins с компетенциями перед отправкой.']))
+  lines.push('', '## Ключевые результаты')
+  if (!wins.length) {
+    lines.push('', 'Выберите wins, которые лучше всего показывают готовность к следующему уровню.')
+  } else {
+    for (const win of wins) lines.push(...winBlock(win))
+  }
+  if (ideas.length) {
+    lines.push('', '## Инициативы, показывающие масштаб')
+    for (const idea of ideas) {
+      const title = asText(idea?.title) || 'Идея'
+      const nextStep = asText(idea?.nextStep)
+      lines.push(`- **${title}**${nextStep ? ` — следующий шаг: ${nextStep}` : ''}`)
+    }
+  }
+  if (criteria.length) {
+    lines.push('', `## Соответствие ожиданиям уровня «${targetLabel}»`)
+    for (const criterion of criteria.slice(0, 5)) lines.push(`- **${criterion.competencyTitle}.** ${criterion.text}`)
+  }
+  lines.push(
+    '',
+    '## Не забудьте перед отправкой',
+    '',
+    '- Проверить, что все цифры и метрики подтверждены и актуальны.',
+    '- Указать реальных людей, подтвердивших результаты, если это уместно.',
+    '- Убрать любой тезис, который нельзя обосновать записью в Эскаде.',
+  )
+  return lines.join('\n')
+}
+
+function buildReportDraft(artifact, criteria, targetLabel) {
+  const reportType = asText(artifact.reportType) || 'Отчёт'
+  const period = [asText(artifact.periodStart), asText(artifact.periodEnd)].filter(Boolean).join(' — ')
+  const wins = asArray(artifact.wins)
+  const ideas = asArray(artifact.ideas)
+  const kind = detectReportKind(reportType)
+  if (kind === 'weekly') return buildWeeklyDraft(reportType, period, wins, ideas)
+  if (kind === 'performance') return buildPerformanceDraft(reportType, period, wins, ideas, criteria)
+  if (kind === 'promotion') return buildPromotionDraft(reportType, period, wins, ideas, criteria, targetLabel)
+  return buildMonthlyDraft(reportType, period, wins, ideas, criteria)
 }
 
 function nextStepFor(action, artifact, targetCriterion, currentCriterion) {
@@ -141,7 +271,7 @@ export function buildLocalGuidance(action, payload) {
   } else if (action === 'report_draft') {
     headline = 'Черновик собран из выбранных записей'
     evidence = ['Проверьте цифры, ссылки и формулировки влияния перед отправкой.', 'Удалите любой вывод, который не подтверждается вашими записями.']
-    draftMarkdown = buildReportDraft(artifact, retrieval.criteria)
+    draftMarkdown = buildReportDraft(artifact, retrieval.criteria, targetLabel)
   } else if (action === 'report_review') {
     headline = 'Что усилить перед отправкой отчёта'
     evidence = ['У каждого сильного тезиса должно быть подтверждение.', 'Отделяйте выполненную работу от её реального эффекта.', 'Не добавляйте причинную связь, если её нельзя подтвердить.']

@@ -598,6 +598,20 @@ export function winGapHints(win) {
   return hints.slice(0, 3)
 }
 
+export function deleteWin(state, winId) {
+  const wins = Array.isArray(state?.wins) ? state.wins : []
+  const reports = Array.isArray(state?.reports) ? state.reports : []
+  return {
+    ...state,
+    wins: wins.filter((item) => item.id !== winId),
+    reports: reports.map((report) => (
+      report.winIds?.includes(winId)
+        ? { ...report, winIds: report.winIds.filter((id) => id !== winId) }
+        : report
+    )),
+  }
+}
+
 export function computeGrowthPath(state, competencies) {
   const profileLevel = state?.profile?.currentLevel ?? 'specialist'
   const targetLevel = profileLevel === 'specialist' ? 'senior' : profileLevel === 'senior' ? 'lead' : null

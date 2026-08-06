@@ -99,10 +99,24 @@ export function retrieveCriteria(payload) {
   }
 }
 
-function actionInstruction(action) {
+function reportDraftInstruction(reportType) {
+  const label = String(reportType ?? '').toLowerCase()
+  if (label.includes('недел')) {
+    return 'Create a short Russian Markdown weekly pulse from only the selected wins and ideas: a few bullet lines per win, one line per idea in progress, one next-week focus. No headline ceremony, no invented metrics or impact.'
+  }
+  if (label.includes('performance')) {
+    return 'Create a thorough Russian Markdown performance-review draft covering the FULL period: every selected win in full detail, ideas in progress, and a competency-signal summary derived only from the competencyIds already present on the supplied wins/ideas (counts only, never invented scores or percentages). Do not invent metrics, impact, recognition, or causal claims.'
+  }
+  if (label.includes('promotion')) {
+    return 'Create a Russian Markdown promotion case that presents the employee in the strongest honest light supported by the data: lead with the strongest competency signals mapped to the next-level criteria supplied, then the key results with full detail, then initiatives showing scope. Never invent a metric, stakeholder confirmation, or causal claim that is not already in the supplied facts — end with an explicit "не забудьте" checklist of what the user must still verify (numbers, confirmations) before submitting.'
+  }
+  return 'Create a concise Russian Markdown monthly draft from only the selected wins and ideas. Do not invent metrics, impact, recognition, or causal claims.'
+}
+
+function actionInstruction(action, artifact) {
   if (action === 'idea_review') return 'Analyze the idea. Return strengths, how to exceed expectations, evidence to preserve, and one concrete next step.'
   if (action === 'win_rewrite') return 'Improve wording without inventing facts. Return a rewrite object with title, impact, and evidence using only supplied facts.'
-  if (action === 'report_draft') return 'Create a concise Russian Markdown draft from only the selected wins and ideas. Do not invent metrics, impact, recognition, or causal claims.'
+  if (action === 'report_draft') return reportDraftInstruction(artifact?.reportType)
   if (action === 'report_review') return 'Review the report against supplied criteria. Identify well-supported signals, missing evidence, and one next action.'
   return 'Recommend no more than three development directions based only on supplied artifacts and the criteria for the current and next level.'
 }
@@ -116,7 +130,7 @@ export function buildClosedWorldMessages(payload, retrieval) {
 
   const system = `You are Escada, a closed-world career guidance assistant for a Digital Marketing employee.\n\nNON-NEGOTIABLE RULES:\n1. Use only the COMPETENCY CRITERIA included in this request and facts explicitly present in USER DATA.\n2. Do not use internet knowledge, generic career frameworks, other companies' practices, or your own definitions of seniority.\n3. Never assign an official level, predict promotion, compare the user with colleagues, or calculate a percentage fit.\n4. Phrase conclusions as signals in the user's records, not as formal assessment.\n5. Never invent numbers, impact, causality, recognition, stakeholders, evidence, or competency links.\n6. Every item in strengths and stretch MUST cite one allowed criterionId. If evidence is insufficient, say so plainly.\n7. Return valid JSON only. No Markdown fences and no prose outside JSON.\n8. Use Russian for all user-facing text.\n9. Return at most 3 strengths, 3 stretch items, 3 evidence items, and exactly one practical nextStep when possible.\n10. The only allowed criterion IDs are: ${allowedIds.join(', ')}.\n\nOUTPUT JSON SHAPE:\n{\n  "headline": "string",\n  "strengths": [{"text":"string","criterionId":"allowed id"}],\n  "stretch": [{"text":"string","criterionId":"allowed id"}],\n  "evidence": ["string"],\n  "nextStep": "string",\n  "rewrite": {"title":"string","impact":"string","evidence":"string"} | null,\n  "draftMarkdown": "string" | null,\n  "caveat": "string"\n}`
 
-  const user = `ACTION: ${payload.action}\nTASK: ${actionInstruction(payload.action)}\nCURRENT LEVEL: ${levelLabels[retrieval.currentLevel]}\nNEXT LEVEL: ${targetLabel}\nROLE: ${payload.profile.role ?? ''}\nMARKET/TEAM: ${payload.profile.market ?? ''}\nKNOWLEDGE BASE VERSION: ${retrieval.knowledgeBaseVersion}\n\nCOMPETENCY CRITERIA:\n${criteriaText}\n\nUSER DATA (facts only):\n${JSON.stringify(payload.artifact ?? payload.context ?? {}, null, 2)}\n\nRemember: if USER DATA does not support a claim, do not make it.`
+  const user = `ACTION: ${payload.action}\nTASK: ${actionInstruction(payload.action, payload.artifact)}\nCURRENT LEVEL: ${levelLabels[retrieval.currentLevel]}\nNEXT LEVEL: ${targetLabel}\nROLE: ${payload.profile.role ?? ''}\nMARKET/TEAM: ${payload.profile.market ?? ''}\nKNOWLEDGE BASE VERSION: ${retrieval.knowledgeBaseVersion}\n\nCOMPETENCY CRITERIA:\n${criteriaText}\n\nUSER DATA (facts only):\n${JSON.stringify(payload.artifact ?? payload.context ?? {}, null, 2)}\n\nRemember: if USER DATA does not support a claim, do not make it.`
 
   return [{ role: 'system', content: system }, { role: 'user', content: user }]
 }
