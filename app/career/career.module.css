@@ -145,7 +145,14 @@
 .compactActions button { border: 0; background: var(--soft); border-radius: 10px; padding: 8px 10px; font-size: 11px; font-weight: 700; }
 .compactActions button:last-child { background: var(--navy); color: white; }
 .winCompact > span { color: var(--muted); font-size: 10px; }
-.promptCard { border-radius: 24px; padding: 28px; background: linear-gradient(110deg, #e4ff91, var(--lime)); display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+.promptCard {
+  border-radius: 24px; padding: 28px; display: flex; justify-content: space-between;
+  align-items: flex-start; gap: 24px; min-width: 0; overflow: hidden;
+  background:
+    radial-gradient(circle at 92% 8%, rgba(255,255,255,.72), transparent 32%),
+    linear-gradient(120deg, #e7ff9c 0%, var(--lime) 100%);
+  box-shadow: 0 18px 48px rgba(122, 150, 39, .14);
+}
 .promptCard h3 { font-size: clamp(21px, 3vw, 32px); max-width: 820px; margin: 12px 0 0; letter-spacing: -0.04em; }
 .promptCard .pill { background: rgba(21,23,42,0.09); color: var(--navy); }
 .promptCard button { border: 0; border-radius: 14px; background: var(--navy); color: white; padding: 13px 16px; font-weight: 800; white-space: nowrap; }
@@ -530,16 +537,7 @@
   .aiMiniButton, .suggestionBar button { transition: none; }
 }
 
-/* escada-ui-guidance-v10: August polish, readable coaching and local scale guidance */
-.promptCard {
-  align-items: flex-start;
-  min-width: 0;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at 92% 8%, rgba(255,255,255,.72), transparent 32%),
-    linear-gradient(120deg, #e7ff9c 0%, var(--lime) 100%);
-  box-shadow: 0 18px 48px rgba(122, 150, 39, .14);
-}
+/* escada-ui-guidance-v10: promptCard layout/background merged into the base rule above to remove the duplicate declaration */
 .promptCardCopy { display: grid; gap: 10px; min-width: 0; flex: 1 1 auto; max-width: 68ch; }
 .promptCardCopy h3 { margin: 0; max-width: none; overflow-wrap: anywhere; text-wrap: balance; line-height: 1.08; }
 .promptCardCopy p { margin: 0; max-width: 64ch; color: rgba(21,23,42,.72); font-size: 13px; line-height: 1.62; overflow-wrap: anywhere; }
