@@ -543,7 +543,7 @@ function TodayView({ quickText, onQuickText, onSubmit, notes, onOpenNote }: {
       <form className={`${styles.quickCapture} ${styles.quickThought}`} onSubmit={onSubmit}><textarea value={quickText} onChange={(event) => onQuickText(event.target.value)} aria-label="Быстрая мысль" /><button type="submit" className={styles.primaryButton}>Записать</button></form>
     </section>
 
-    {notes.length > 0 ? (
+    {notes.length > 0 && (
       <section className={styles.pinBoard}>
         {notes.map((note) => (
           <article className={styles.noteCard} key={note.id} onClick={() => onOpenNote(note)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpenNote(note) }}>
@@ -553,8 +553,6 @@ function TodayView({ quickText, onQuickText, onSubmit, notes, onOpenNote }: {
           </article>
         ))}
       </section>
-    ) : (
-      <EmptyState title="Пока нет мыслей" text="Запишите первую мысль в форме выше — тип и детали можно добавить позже." action="Понятно" onAction={() => {}} />
     )}
   </div>
 }
@@ -616,15 +614,24 @@ function IdeasView({ ideas, onNew, onOpen, onStatusChange }: {
                   key={idea.id}
                   className={styles.kanbanCard}
                   draggable
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpen(idea)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') onOpen(idea) }}
                   onDragStart={(event) => { event.dataTransfer.setData('text/escada-idea-id', idea.id); setDragIdeaId(idea.id) }}
                   onDragEnd={() => setDragIdeaId(null)}
                 >
                   <h4>{idea.title}</h4>
                   <div className={styles.cardActions}>
-                    <select value={idea.status} onChange={(event) => onStatusChange(idea.id, event.target.value as ActiveIdeaStatus)} aria-label="Статус идеи">
+                    <select
+                      className={styles.kanbanCardStatusSelect}
+                      value={idea.status}
+                      onChange={(event) => onStatusChange(idea.id, event.target.value as ActiveIdeaStatus)}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label="Статус идеи"
+                    >
                       {KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
                     </select>
-                    <button type="button" className={styles.secondaryButton} onClick={() => onOpen(idea)}>Открыть</button>
                   </div>
                 </article>
               ))}
@@ -704,7 +711,6 @@ function ScaleReference({ profile, onCreateIdea }: { profile: Profile; onCreateI
 
 function IdeaWorkspace({ draft: initial, profile, autoAi, busy, error, onClose, onSave, onPromote, onAi }: { draft: Idea; profile: Profile; autoAi: boolean; busy: string; error: string; onClose: () => void; onSave: (idea: Idea, close?: boolean) => Idea; onPromote: (idea: Idea) => void; onAi: (idea: Idea) => Promise<AiResponse> }) {
   const [draft, setDraft] = useState(initial)
-  const [workText, setWorkText] = useState('')
   const [noteText, setNoteText] = useState('')
   const [evidenceText, setEvidenceText] = useState('')
   const [guidance, setGuidance] = useState<AiResponse | null>(null)
@@ -720,16 +726,50 @@ function IdeaWorkspace({ draft: initial, profile, autoAi, busy, error, onClose, 
   async function runAi() { setGuidance(await onAi(draft)) }
   useEffect(() => { if (autoAi && !hasAutoRun.current) { hasAutoRun.current = true; void runAi() } }, [autoAi])
 
-  function addWork() { const title = workText.trim(); if (!title) return; setDraft((current) => ({ ...current, status: current.status === 'concept' || current.status === 'preparation' ? 'in_progress' : current.status, workItems: [...current.workItems, { id: createId('work'), title, status: 'backlog', createdAt: new Date().toISOString(), completedAt: null }] })); setWorkText('') }
-  function moveWork(id: string, status: WorkStatus) { setDraft((current) => ({ ...current, workItems: current.workItems.map((item) => item.id === id ? { ...item, status, completedAt: status === 'done' ? new Date().toISOString() : null } : item) })) }
   function addNote() { const value = noteText.trim(); if (!value) return; setDraft((current) => ({ ...current, notes: [...current.notes, { id: createId('note'), text: value, createdAt: new Date().toISOString() }] })); setNoteText('') }
   function addEvidence() { const value = evidenceText.trim(); if (!value) return; setDraft((current) => ({ ...current, evidenceNotes: [...current.evidenceNotes, { id: createId('evidence'), text: value, createdAt: new Date().toISOString() }] })); setEvidenceText('') }
   function toggleCompetency(id: string) { setDraft((current) => ({ ...current, competencyIds: current.competencyIds.includes(id) ? current.competencyIds.filter((item) => item !== id) : [...current.competencyIds, id] })) }
 
-  return <div className={styles.workspaceBackdrop}><section className={styles.ideaWorkspace}><header className={styles.workspaceHeader}><div><span className={styles.eyebrow}>Идея как рабочее пространство</span><h2>{draft.title || 'Новая идея'}</h2><p>Детали остаются внутри. Карточка в списке будет минималистичной.</p></div><button type="button" onClick={onClose}>×</button></header><div className={styles.ideaWorkspaceGrid}><div className={styles.ideaMainColumn}><section className={styles.workspaceSection}><label className={styles.field}>Название идеи<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} autoFocus /></label><label className={styles.field}>Контекст<textarea className={styles.largeTextarea} value={draft.details} onChange={(event) => setDraft({ ...draft, details: event.target.value })} placeholder="Почему эта идея появилась, какую проблему или возможность вы заметили?" /></label><label className={styles.field}>Следующий шаг<textarea value={draft.nextStep} onChange={(event) => setDraft({ ...draft, nextStep: event.target.value })} placeholder="Одно конкретное действие" /></label></section><section className={styles.workspaceSection}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Лёгкий канбан</span><h3>Ход работы</h3></div></div><div className={styles.addInline}><input value={workText} onChange={(event) => setWorkText(event.target.value)} placeholder="Добавить этап" /><button type="button" onClick={addWork}>Добавить</button></div><div className={styles.miniKanban}>{(['backlog', 'doing', 'done'] as WorkStatus[]).map((status) => {
-      const items = draft.workItems.filter((item) => item.status === status)
-      return <div className={styles.kanbanColumn} data-status={status} key={status}><header className={styles.kanbanHeader}><span className={styles.kanbanStatusDot} aria-hidden="true" /><strong>{workStatusLabels[status]}</strong><span className={styles.kanbanCount}>{items.length}</span></header><div className={styles.kanbanItems}>{items.length ? items.map((item) => <article className={styles.workItem} key={item.id}><p>{item.title}</p><div>{status !== 'backlog' && <button className={styles.kanbanMoveButton} type="button" aria-label="Переместить этап назад" onClick={() => moveWork(item.id, status === 'done' ? 'doing' : 'backlog')}>←</button>}{status !== 'done' && <button className={styles.kanbanMoveButton} type="button" aria-label="Переместить этап вперёд" onClick={() => moveWork(item.id, status === 'backlog' ? 'doing' : 'done')}>→</button>}</div></article>) : <small>Здесь пока нет этапов</small>}</div></div>
-    })}</div></section><section className={styles.workspaceSection}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Рабочие заметки</span><h3>Логика и наблюдения</h3></div></div><div className={styles.addInline}><input value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Решение, наблюдение, обратная связь…" /><button type="button" onClick={addNote}>Добавить</button></div><div className={styles.notesTimeline}>{draft.notes.map((note) => <article key={note.id}><span>{formatDate(note.createdAt.slice(0, 10))}</span><p>{note.text}</p></article>)}</div></section><section className={styles.workspaceSection}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Доказательства</span><h3>Что сохранить для будущего win</h3></div></div><div className={styles.addInline}><input value={evidenceText} onChange={(event) => setEvidenceText(event.target.value)} placeholder="Ссылка, артефакт, отзыв, метрика, решение…" /><button type="button" onClick={addEvidence}>Добавить</button></div><div className={styles.evidenceList}>{draft.evidenceNotes.map((item) => <article key={item.id}><span>◆</span><p>{item.text}</p></article>)}</div></section></div><aside className={styles.ideaSideColumn}><section className={styles.signalCard}><span className={styles.eyebrow}>Встроенная карьерная подсказка</span><h3>{levelLabels[inferred.level]}</h3><p>{inferred.reason}</p><details><summary>Ожидания текущего уровня</summary><ul>{currentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>{target && <details><summary>Как выйти на {levelLabels[target]}</summary><ul>{nextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}</section><section className={styles.workspaceSection}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Компетенции</span><h3>Контекст идеи</h3></div></div><div className={styles.choiceChips}>{competencies.map((competency) => <button type="button" key={competency.id} className={draft.competencyIds.includes(competency.id) ? styles.choiceActive : ''} onClick={() => toggleCompetency(competency.id)}>{competency.shortTitle}</button>)}</div></section><section className={styles.aiPanel}><span className={styles.eyebrow}>Только по запросу</span><h3>Разобрать с Эскадой</h3><p>Эскада сопоставит карточку с релевантными пунктами шкалы и подскажет следующий шаг. Внешние карьерные фреймворки не используются.</p><button className={styles.primaryButton} type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Разбираем…' : 'Разобрать с Эскадой'}</button>{error && <p className={styles.aiError}>{error}</p>}</section>{guidance && <AiGuidancePanel guidance={guidance} compact onSaveNextStep={() => setDraft({ ...draft, nextStep: guidance.nextStep })} />}</aside></div><footer className={styles.workspaceFooter}><button className={styles.secondaryButton} type="button" onClick={onClose}>Закрыть</button><div><button className={styles.secondaryButton} type="button" disabled={!draft.title.trim()} onClick={() => onPromote(draft)}>Оформить win</button><button className={styles.primaryButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Сохранить идею</button></div></footer></section></div>
+  return <div className={styles.workspaceBackdrop}><section className={`${styles.ideaWorkspace} ${styles.ideaWorkspaceSimple}`}>
+    <header className={styles.workspaceHeader}>
+      <div className={styles.ideaActionRow}>
+        <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as ActiveIdeaStatus })} aria-label="Статус идеи">
+          {KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
+        </select>
+        <button type="button" className={styles.primaryButton} disabled={!draft.title.trim()} onClick={() => onPromote(draft)}>Win!</button>
+      </div>
+      <button type="button" className={styles.workspaceCloseButton} aria-label="Закрыть" onClick={onClose}>×</button>
+    </header>
+    <div className={styles.ideaWorkspaceBody}>
+      <section className={styles.workspaceSectionSpacious}>
+        <input className={styles.ideaTitleInput} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Название идеи" autoFocus />
+        <textarea className={styles.largeTextarea} value={draft.details} onChange={(event) => setDraft({ ...draft, details: event.target.value })} placeholder="В чём идея и почему она может быть полезна?" />
+      </section>
+
+      <section className={styles.signalCard}><span className={styles.eyebrow}>Карьерная подсказка</span><h3>{levelLabels[inferred.level]}</h3><p>{inferred.reason}</p><details><summary>Ожидания текущего уровня</summary><ul>{currentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>{target && <details><summary>Как выйти на {levelLabels[target]}</summary><ul>{nextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}</section>
+
+      <section className={styles.workspaceSectionSpacious}>
+        <div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Компетенции</span><h3>Контекст идеи</h3></div></div>
+        <div className={styles.choiceChips}>{competencies.map((competency) => <button type="button" key={competency.id} className={draft.competencyIds.includes(competency.id) ? styles.choiceActive : ''} onClick={() => toggleCompetency(competency.id)}>{competency.shortTitle}</button>)}</div>
+      </section>
+
+      <section className={styles.aiPanel}><span className={styles.eyebrow}>Только по запросу</span><h3>Разобрать с Эскадой</h3><p>Эскада сопоставит карточку с релевантными пунктами шкалы и подскажет следующий шаг. Внешние карьерные фреймворки не используются.</p><button className={styles.primaryButton} type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Разбираем…' : 'Разобрать с Эскадой'}</button>{error && <p className={styles.aiError}>{error}</p>}</section>
+      {guidance && <AiGuidancePanel guidance={guidance} compact />}
+
+      <details className={styles.secondarySection}>
+        <summary>Рабочие заметки</summary>
+        <div className={styles.addInline}><input value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Решение, наблюдение, обратная связь…" /><button type="button" onClick={addNote}>Добавить</button></div>
+        <div className={styles.notesTimeline}>{draft.notes.map((note) => <article key={note.id}><span>{formatDate(note.createdAt.slice(0, 10))}</span><p>{note.text}</p></article>)}</div>
+      </details>
+
+      <details className={styles.secondarySection}>
+        <summary>Доказательства</summary>
+        <div className={styles.addInline}><input value={evidenceText} onChange={(event) => setEvidenceText(event.target.value)} placeholder="Ссылка, артефакт, отзыв, метрика, решение…" /><button type="button" onClick={addEvidence}>Добавить</button></div>
+        <div className={styles.evidenceList}>{draft.evidenceNotes.map((item) => <article key={item.id}><span>◆</span><p>{item.text}</p></article>)}</div>
+      </details>
+    </div>
+    <footer className={styles.workspaceFooter}><button className={styles.secondaryButton} type="button" onClick={onClose}>Закрыть</button><button className={styles.primaryButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Сохранить идею</button></footer>
+  </section></div>
 }
 
 function WinModal({ draft: initial, profile, busy, error, onClose, onSave, onDelete, onAi }: { draft: WinDraft; profile: Profile; busy: string; error: string; onClose: () => void; onSave: (draft: WinDraft) => void; onDelete: (winId: string) => void; onAi: (draft: WinDraft) => Promise<AiResponse> }) {
