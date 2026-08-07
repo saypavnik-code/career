@@ -137,7 +137,7 @@ export function computeInsights(state) {
   return {
     notes: notes.length,
     activeIdeas: activeIdeas.length,
-    exploredIdeas: ideas.filter((idea) => idea.status === 'exploring').length,
+    exploredIdeas: ideas.filter((idea) => idea.status === 'preparation' || idea.status === 'in_progress').length,
     wins: wins.length,
     reportReadyWins: reportReadyWins.length,
     reports: reports.length,
@@ -315,7 +315,7 @@ export function buildCoachNotes(state, competencies, now = new Date()) {
   }
 
   const staleIdea = ideas.find((idea) => {
-    if (idea.status !== 'exploring') return false
+    if (!ACTIVE_KANBAN_STATUSES.includes(idea.status)) return false
     const updated = new Date(idea.updatedAt ?? idea.createdAt ?? now).getTime()
     return now.getTime() - updated > 14 * DAY_MS
   })
@@ -392,7 +392,7 @@ export function demoState(now = new Date()) {
         title: 'Собрать PR-угол вокруг собственных данных для PME',
         details: 'Найти неожиданный вывод в исследовании и превратить его в локальный медиапитч.',
         nextStep: 'Проверить интерес через пять журналистов.',
-        status: 'exploring',
+        status: 'in_progress',
         competencyIds: ['strategic-thinking', 'pr-reputation', 'analytics'],
         levelSignal: 'senior',
         levelReason: 'Есть самостоятельная гипотеза, проверка через рынок и измеримый результат.',
@@ -412,7 +412,7 @@ export function demoState(now = new Date()) {
         title: 'Автоматизировать еженедельный разбор поисковых запросов',
         details: 'Собрать лёгкий workflow, который группирует новые запросы по намерению.',
         nextStep: 'Сделать прототип на одном рекламном аккаунте.',
-        status: 'inbox',
+        status: 'concept',
         competencyIds: ['analytics', 'paid-acquisition'],
         levelSignal: 'senior',
         levelReason: 'Идея про оптимизацию процесса и самостоятельный эксперимент.',
@@ -509,6 +509,39 @@ function captureToNote(capture, migratedIdeas) {
   }
 }
 
+
+// --- Idea status: new active-kanban vocabulary (AI-First roadmap 5.2 / 9) -
+//
+// Active kanban: concept -> preparation -> in_progress -> outcomes.
+// Terminal, off-kanban: won, archived (unchanged; an idea leaves the active
+// kanban once it becomes a win or is archived — roadmap 8.1).
+//
+// Legacy values are mapped per the roadmap's own migration table (section
+// 10): inbox -> concept; exploring with no started/finished work item ->
+// preparation; exploring with some but not all work done -> in_progress;
+// exploring with every existing work item done -> outcomes. Already-current
+// values pass through unchanged, so this function is safe to call on data
+// that has already been migrated (idempotent).
+
+const ACTIVE_KANBAN_STATUSES = ['concept', 'preparation', 'in_progress', 'outcomes']
+const CURRENT_IDEA_STATUSES = new Set([...ACTIVE_KANBAN_STATUSES, 'won', 'archived'])
+
+export function migrateIdeaStatus(status, workItems = []) {
+  if (CURRENT_IDEA_STATUSES.has(status)) return status
+  if (status === 'won') return 'won'
+  if (status === 'archived') return 'archived'
+  if (!status || status === 'inbox') return 'concept'
+  if (status === 'exploring') {
+    const items = Array.isArray(workItems) ? workItems : []
+    if (items.length === 0) return 'preparation'
+    const allDone = items.every((item) => item.status === 'done')
+    if (allDone) return 'outcomes'
+    const anyStarted = items.some((item) => item.status === 'done' || item.status === 'doing')
+    return anyStarted ? 'in_progress' : 'preparation'
+  }
+  return 'concept'
+}
+
 function normalizeIdea(idea, fallbackLevel = 'specialist') {
   const text = `${idea?.title ?? ''} ${idea?.details ?? ''} ${idea?.nextStep ?? ''}`
   const inferred = inferLevelSignal(text, fallbackLevel)
@@ -517,7 +550,7 @@ function normalizeIdea(idea, fallbackLevel = 'specialist') {
     title: idea?.title ?? 'Импортированная идея',
     details: idea?.details ?? '',
     nextStep: idea?.nextStep ?? '',
-    status: idea?.status ?? 'inbox',
+    status: migrateIdeaStatus(idea?.status, idea?.workItems),
     competencyIds: Array.isArray(idea?.competencyIds) ? idea.competencyIds : [],
     levelSignal: idea?.levelSignal ?? inferred.level,
     levelReason: idea?.levelReason ?? inferred.reason,
@@ -625,7 +658,7 @@ export function captureToIdea(capture, currentLevel = 'specialist') {
   const inferred = inferLevelSignal(capture?.text ?? '', currentLevel)
   const now = new Date().toISOString()
   return {
-    id: createId('idea'), title: capture?.text ?? '', details: '', nextStep: '', status: 'inbox', competencyIds: [],
+    id: createId('idea'), title: capture?.text ?? '', details: '', nextStep: '', status: 'concept', competencyIds: [],
     levelSignal: inferred.level, levelReason: inferred.reason, behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [],
     createdAt: now, updatedAt: now,
   }
@@ -696,7 +729,7 @@ export function noteToIdea(note, currentLevel = 'specialist') {
     title: note?.title || 'Новая идея',
     details: meaning,
     nextStep: '',
-    status: 'inbox',
+    status: 'concept',
     competencyIds: [],
     levelSignal: inferred.level,
     levelReason: inferred.reason,

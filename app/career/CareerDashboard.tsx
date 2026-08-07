@@ -37,7 +37,8 @@ import {
 const ESCADA_AI_ENDPOINT = process.env.NEXT_PUBLIC_ESCADA_AI_ENDPOINT?.trim() ?? ''
 
 type View = 'today' | 'ideas' | 'wins' | 'reports' | 'growth'
-type IdeaStatus = 'inbox' | 'exploring' | 'won' | 'archived'
+type IdeaStatus = 'concept' | 'preparation' | 'in_progress' | 'outcomes' | 'won' | 'archived'
+type ActiveIdeaStatus = 'concept' | 'preparation' | 'in_progress' | 'outcomes'
 type WorkStatus = 'backlog' | 'doing' | 'done'
 type ReportType = 'weekly' | 'monthly' | 'one-to-one' | 'performance' | 'promotion'
 type GrowthTab = 'path' | 'scale'
@@ -170,11 +171,15 @@ const navItems: Array<{ id: View; label: string; caption: string; icon: string }
 ]
 
 const statusLabels: Record<IdeaStatus, string> = {
-  inbox: 'Входящие',
-  exploring: 'В работе',
+  concept: 'Задумка',
+  preparation: 'Подготовка',
+  in_progress: 'В работе',
+  outcomes: 'Итоги',
   won: 'Стала win',
   archived: 'Архив',
 }
+
+const KANBAN_COLUMNS: ActiveIdeaStatus[] = ['concept', 'preparation', 'in_progress', 'outcomes']
 
 const workStatusLabels: Record<WorkStatus, string> = {
   backlog: 'План',
@@ -223,7 +228,7 @@ function newIdea(currentLevel: LevelKey, title = '') {
   const inferred = inferLevelSignal(title, currentLevel) as { level: LevelKey; reason: string }
   const now = new Date().toISOString()
   return {
-    id: createId('idea'), title, details: '', nextStep: '', status: 'inbox', competencyIds: [],
+    id: createId('idea'), title, details: '', nextStep: '', status: 'concept', competencyIds: [],
     levelSignal: inferred.level, levelReason: inferred.reason, behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [],
     createdAt: now, updatedAt: now,
   } as Idea
@@ -262,7 +267,6 @@ export default function CareerDashboard() {
   const [winDraft, setWinDraft] = useState<WinDraft | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [notice, setNotice] = useState('')
-  const [ideaFilter, setIdeaFilter] = useState<'all' | IdeaStatus>('all')
   const [periodStart, setPeriodStart] = useState(dateDaysAgo(90))
   const [periodEnd, setPeriodEnd] = useState(todayIso())
   const [selectedWinIds, setSelectedWinIds] = useState<string[]>([])
@@ -293,8 +297,7 @@ export default function CareerDashboard() {
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  const activeIdeas = useMemo(() => state.ideas.filter((item) => item.status === 'inbox' || item.status === 'exploring'), [state.ideas])
-  const filteredIdeas = useMemo(() => state.ideas.filter((item) => ideaFilter === 'all' || item.status === ideaFilter), [ideaFilter, state.ideas])
+  const activeIdeas = useMemo(() => state.ideas.filter((item) => item.status !== 'won' && item.status !== 'archived'), [state.ideas])
   const winsInPeriod = useMemo(() => selectWinsForPeriod(state.wins, periodStart, periodEnd) as Win[], [state.wins, periodStart, periodEnd])
   const coachNotes = useMemo(() => buildCoachNotes(state as unknown as Record<string, unknown>, competencies) as Array<{ title: string; text: string; ideaId?: string; winId?: string }>, [state])
   const growthPath = useMemo(() => computeGrowthPath(state as unknown as Record<string, unknown>, competencies) as {
@@ -376,6 +379,13 @@ export default function CareerDashboard() {
     setIdeaDraft(close ? null : prepared)
     setNotice('Идея сохранена')
     return prepared
+  }
+
+  function changeIdeaStatus(ideaId: string, status: ActiveIdeaStatus) {
+    updateState((current) => ({
+      ...current,
+      ideas: current.ideas.map((item) => item.id === ideaId ? { ...item, status, updatedAt: new Date().toISOString() } : item),
+    }))
   }
 
   function startWinFromIdea(idea: Idea) {
@@ -485,7 +495,7 @@ export default function CareerDashboard() {
         </header>
 
         {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
-        {view === 'ideas' && <IdeasView ideas={filteredIdeas} filter={ideaFilter} onFilter={setIdeaFilter} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => { setIdeaAiOnOpen(false); setIdeaDraft(idea) }} onAi={(idea) => { setIdeaAiOnOpen(true); setIdeaDraft(idea) }} />}
+        {view === 'ideas' && <IdeasView ideas={state.ideas} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => { setIdeaAiOnOpen(false); setIdeaDraft(idea) }} onStatusChange={changeIdeaStatus} />}
         {view === 'wins' && <WinsView wins={state.wins} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} />}
@@ -576,8 +586,56 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onAi }: {
   </Modal>
 }
 
-function IdeasView({ ideas, filter, onFilter, onNew, onOpen, onAi }: { ideas: Idea[]; filter: 'all' | IdeaStatus; onFilter: (value: 'all' | IdeaStatus) => void; onNew: () => void; onOpen: (idea: Idea) => void; onAi: (idea: Idea) => void }) {
-  return <div className={styles.pageStack}><section className={styles.pageIntro}><div><span className={styles.eyebrow}>Рабочая память</span><h2>Идеи</h2><p>Карточки показывают только то, что нужно для следующего действия. Вся детализация находится внутри.</p></div><button className={styles.primaryButton} type="button" onClick={onNew}>Новая идея</button></section><div className={styles.filterBar}>{(['all', 'inbox', 'exploring', 'won', 'archived'] as const).map((value) => <button type="button" key={value} className={filter === value ? styles.filterActive : ''} onClick={() => onFilter(value)}>{value === 'all' ? 'Все' : statusLabels[value]}</button>)}</div><section className={styles.ideaGrid}>{ideas.length ? ideas.map((idea) => <article className={`${styles.ideaCard} ${styles.minimalIdeaCard}`} key={idea.id}><div className={styles.cardTopline}><span className={styles.statusBadge} data-status={idea.status}>{statusLabels[idea.status]}</span></div><h3>{idea.title}</h3><div className={styles.nextStep}><span>Следующий шаг</span><p>{idea.nextStep || 'Пока не определён'}</p></div><div className={styles.cardActions}><button type="button" className={styles.secondaryButton} onClick={() => onOpen(idea)}>Открыть</button><button type="button" className={styles.aiMiniButton} onClick={() => onAi(idea)}>✦ ИИ-подсказка</button></div></article>) : <EmptyState title="Идей пока нет" text="Запишите мысль на экране «Сегодня» или создайте карточку сразу." action="Создать идею" onAction={onNew} />}</section></div>
+function IdeasView({ ideas, onNew, onOpen, onStatusChange }: {
+  ideas: Idea[]
+  onNew: () => void
+  onOpen: (idea: Idea) => void
+  onStatusChange: (ideaId: string, status: ActiveIdeaStatus) => void
+}) {
+  const [dragIdeaId, setDragIdeaId] = useState<string | null>(null)
+  const kanbanIdeas = ideas.filter((idea) => idea.status !== 'won' && idea.status !== 'archived')
+
+  function handleDrop(event: React.DragEvent, status: ActiveIdeaStatus) {
+    event.preventDefault()
+    const ideaId = event.dataTransfer.getData('text/escada-idea-id') || dragIdeaId
+    if (ideaId) onStatusChange(ideaId, status)
+    setDragIdeaId(null)
+  }
+
+  return <div className={styles.pageStack}>
+    <section className={styles.pageIntro}><h2>Идеи</h2><button className={styles.primaryButton} type="button" onClick={onNew}>Новая идея</button></section>
+    {kanbanIdeas.length ? (
+      <section className={styles.kanbanBoard}>
+        {KANBAN_COLUMNS.map((status) => {
+          const columnIdeas = kanbanIdeas.filter((idea) => idea.status === status)
+          return <div key={status} className={styles.kanbanColumnWrap} onDragOver={(event) => event.preventDefault()} onDrop={(event) => handleDrop(event, status)}>
+            <div className={styles.kanbanColumnHeader}><h3>{statusLabels[status]}</h3><span>{columnIdeas.length}</span></div>
+            <div className={styles.kanbanColumnBody}>
+              {columnIdeas.map((idea) => (
+                <article
+                  key={idea.id}
+                  className={styles.kanbanCard}
+                  draggable
+                  onDragStart={(event) => { event.dataTransfer.setData('text/escada-idea-id', idea.id); setDragIdeaId(idea.id) }}
+                  onDragEnd={() => setDragIdeaId(null)}
+                >
+                  <h4>{idea.title}</h4>
+                  <div className={styles.cardActions}>
+                    <select value={idea.status} onChange={(event) => onStatusChange(idea.id, event.target.value as ActiveIdeaStatus)} aria-label="Статус идеи">
+                      {KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
+                    </select>
+                    <button type="button" className={styles.secondaryButton} onClick={() => onOpen(idea)}>Открыть</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        })}
+      </section>
+    ) : (
+      <EmptyState title="Идей пока нет" text="Запишите мысль на экране «Сегодня» или создайте карточку сразу." action="Создать идею" onAction={onNew} />
+    )}
+  </div>
 }
 
 function WinsView({ wins, onNew, onOpen, onDelete, onReports }: { wins: Win[]; onNew: () => void; onOpen: (win: Win) => void; onDelete: (winId: string) => void; onReports: () => void }) {
@@ -662,7 +720,7 @@ function IdeaWorkspace({ draft: initial, profile, autoAi, busy, error, onClose, 
   async function runAi() { setGuidance(await onAi(draft)) }
   useEffect(() => { if (autoAi && !hasAutoRun.current) { hasAutoRun.current = true; void runAi() } }, [autoAi])
 
-  function addWork() { const title = workText.trim(); if (!title) return; setDraft((current) => ({ ...current, status: 'exploring', workItems: [...current.workItems, { id: createId('work'), title, status: 'backlog', createdAt: new Date().toISOString(), completedAt: null }] })); setWorkText('') }
+  function addWork() { const title = workText.trim(); if (!title) return; setDraft((current) => ({ ...current, status: current.status === 'concept' || current.status === 'preparation' ? 'in_progress' : current.status, workItems: [...current.workItems, { id: createId('work'), title, status: 'backlog', createdAt: new Date().toISOString(), completedAt: null }] })); setWorkText('') }
   function moveWork(id: string, status: WorkStatus) { setDraft((current) => ({ ...current, workItems: current.workItems.map((item) => item.id === id ? { ...item, status, completedAt: status === 'done' ? new Date().toISOString() : null } : item) })) }
   function addNote() { const value = noteText.trim(); if (!value) return; setDraft((current) => ({ ...current, notes: [...current.notes, { id: createId('note'), text: value, createdAt: new Date().toISOString() }] })); setNoteText('') }
   function addEvidence() { const value = evidenceText.trim(); if (!value) return; setDraft((current) => ({ ...current, evidenceNotes: [...current.evidenceNotes, { id: createId('evidence'), text: value, createdAt: new Date().toISOString() }] })); setEvidenceText('') }

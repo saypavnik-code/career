@@ -26,6 +26,7 @@ export function captureToWinDraft(capture: Record<string, unknown>): Record<stri
 export function deriveNoteTitle(rawText: string): { title: string; body: string }
 export function createNote(rawText: string, now?: Date): Record<string, unknown> | null
 export function noteToIdea(note: Record<string, unknown>, currentLevel?: string): { idea: Record<string, unknown>; note: Record<string, unknown> }
+export function migrateIdeaStatus(status: string | undefined, workItems?: Array<{ status: string }>): string
 export function winGapHints(win: Record<string, unknown>): string[]
 export function deleteWin(state: Record<string, unknown>, winId: string): Record<string, unknown>
 export function computeGrowthPath(state: Record<string, unknown>, competencies: unknown[]): Record<string, unknown>

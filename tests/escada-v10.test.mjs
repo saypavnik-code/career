@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildLocalGuidance } from '../app/career/local-guidance.mjs'
-import { deleteWin, deriveNoteTitle, migrateState } from '../app/career/career-core.mjs'
+import { deleteWin, deriveNoteTitle, migrateIdeaStatus, migrateState } from '../app/career/career-core.mjs'
 
 const profile = {
   name: 'Мария',
@@ -208,4 +208,42 @@ test('migrateState is idempotent on an already-v5 state', () => {
   const migratedTwice = migrateState(migratedOnce)
   assert.deepEqual(migratedOnce.notes, migratedTwice.notes)
   assert.equal(migratedTwice.version, 5)
+})
+
+
+test('migrateIdeaStatus maps every legacy status per the roadmap migration table', () => {
+  assert.equal(migrateIdeaStatus('inbox'), 'concept')
+  assert.equal(migrateIdeaStatus(undefined), 'concept')
+  assert.equal(migrateIdeaStatus('exploring', []), 'preparation')
+  assert.equal(migrateIdeaStatus('exploring', [{ status: 'backlog' }]), 'preparation')
+  assert.equal(migrateIdeaStatus('exploring', [{ status: 'doing' }]), 'in_progress')
+  assert.equal(migrateIdeaStatus('exploring', [{ status: 'done' }, { status: 'backlog' }]), 'in_progress')
+  assert.equal(migrateIdeaStatus('exploring', [{ status: 'done' }]), 'outcomes')
+  assert.equal(migrateIdeaStatus('exploring', [{ status: 'done' }, { status: 'done' }]), 'outcomes')
+  assert.equal(migrateIdeaStatus('won'), 'won')
+  assert.equal(migrateIdeaStatus('archived'), 'archived')
+})
+
+test('migrateIdeaStatus is idempotent on every current-vocabulary value', () => {
+  for (const status of ['concept', 'preparation', 'in_progress', 'outcomes', 'won', 'archived']) {
+    assert.equal(migrateIdeaStatus(status), status)
+  }
+})
+
+test('migrateState routes a v4-era idea status through migrateIdeaStatus end to end', () => {
+  const migrated = migrateState({
+    version: 4,
+    profile: { currentLevel: 'senior', name: 'Мария', role: 'Digital Marketing Manager' },
+    notes: [],
+    ideas: [
+      { id: 'i1', title: 'Задумка без работы', status: 'inbox', workItems: [] },
+      { id: 'i2', title: 'В процессе', status: 'exploring', workItems: [{ status: 'doing' }] },
+      { id: 'i3', title: 'Готова к win', status: 'exploring', workItems: [{ status: 'done' }] },
+    ],
+    wins: [],
+    reports: [],
+  })
+  assert.equal(migrated.ideas.find((idea) => idea.id === 'i1').status, 'concept')
+  assert.equal(migrated.ideas.find((idea) => idea.id === 'i2').status, 'in_progress')
+  assert.equal(migrated.ideas.find((idea) => idea.id === 'i3').status, 'outcomes')
 })
