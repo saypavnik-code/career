@@ -23,7 +23,7 @@ import {
 } from '../app/career/ai-contract.mjs'
 
 test('v8 uses a new storage key and keeps all 12 competencies', () => {
-  assert.equal(STORAGE_KEY, 'escada:v4')
+  assert.equal(STORAGE_KEY, 'escada:v5')
   assert.equal(competencyKnowledge.length, 12)
   assert.ok(allCriteria.length > 100)
   assert.match(knowledgeBaseVersion, /competency-scale/)
@@ -49,7 +49,7 @@ test('migration from v3 preserves records and adds captures and optional evidenc
     wins: [{ id: 'w1', title: 'Результат' }],
     reports: [],
   }, createDefaultState())
-  assert.deepEqual(migrated.captures, [])
+  assert.deepEqual(migrated.notes, [])
   assert.deepEqual(migrated.ideas[0].evidenceNotes, [])
   assert.equal(migrated.wins[0].metrics, '')
   assert.equal(migrated.profile.currentLevel, 'senior')

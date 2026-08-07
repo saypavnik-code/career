@@ -23,6 +23,9 @@ export function classifyCapture(text: string): { kind: 'idea' | 'win' | 'note'; 
 export function createCapture(text: string, now?: Date): Record<string, unknown>
 export function captureToIdea(capture: Record<string, unknown>, currentLevel?: string): Record<string, unknown>
 export function captureToWinDraft(capture: Record<string, unknown>): Record<string, unknown>
+export function deriveNoteTitle(rawText: string): { title: string; body: string }
+export function createNote(rawText: string, now?: Date): Record<string, unknown> | null
+export function noteToIdea(note: Record<string, unknown>, currentLevel?: string): { idea: Record<string, unknown>; note: Record<string, unknown> }
 export function winGapHints(win: Record<string, unknown>): string[]
 export function deleteWin(state: Record<string, unknown>, winId: string): Record<string, unknown>
 export function computeGrowthPath(state: Record<string, unknown>, competencies: unknown[]): Record<string, unknown>

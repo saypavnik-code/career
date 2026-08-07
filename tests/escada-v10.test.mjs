@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildLocalGuidance } from '../app/career/local-guidance.mjs'
-import { deleteWin } from '../app/career/career-core.mjs'
+import { deleteWin, deriveNoteTitle, migrateState } from '../app/career/career-core.mjs'
 
 const profile = {
   name: 'Мария',
@@ -144,4 +144,68 @@ test('promotion case draft leads with signals and ends with a verification check
   assert.match(result.draftMarkdown, /Promotion case/)
   assert.match(result.draftMarkdown, /Сильнейшие сигналы/)
   assert.match(result.draftMarkdown, /Не забудьте перед отправкой/)
+})
+
+
+test('deriveNoteTitle matches the roadmap worked example exactly', () => {
+  const input = 'Новый подход к PR-рассылкам для локальных медиа\n\nМожно использовать собственные исследования и отдельные углы для разных типов изданий.'
+  const { title, body } = deriveNoteTitle(input)
+  assert.equal(title, 'Новый подход к PR-рассылкам')
+  assert.equal(body, 'для локальных медиа\n\nМожно использовать собственные исследования и отдельные углы для разных типов изданий.')
+})
+
+test('deriveNoteTitle uses all words when the first line has fewer than four', () => {
+  assert.deepEqual(deriveNoteTitle('Два слова'), { title: 'Два слова', body: '' })
+  assert.deepEqual(deriveNoteTitle('Одно'), { title: 'Одно', body: '' })
+})
+
+test('deriveNoteTitle produces a title-only note when nothing follows', () => {
+  const { title, body } = deriveNoteTitle('Ровно четыре слова тут')
+  assert.equal(title, 'Ровно четыре слова тут')
+  assert.equal(body, '')
+})
+
+test('deriveNoteTitle returns empty title for empty input', () => {
+  assert.deepEqual(deriveNoteTitle(''), { title: '', body: '' })
+  assert.deepEqual(deriveNoteTitle('   \n  '), { title: '', body: '' })
+})
+
+test('migrateState converts v4 captures into v5 notes without losing wins, ideas, or reports', () => {
+  const v4State = {
+    version: 4,
+    profile: { name: 'Мария', role: 'Digital Marketing Manager', market: 'Brazil', currentLevel: 'senior', reportingRhythm: 'monthly', cycleEnd: '2026-12-31' },
+    captures: [
+      { id: 'capture-1', text: 'Новый подход к PR-рассылкам для локальных медиа', suggestedKind: 'idea', status: 'unclassified', createdAt: '2026-08-01T00:00:00.000Z' },
+    ],
+    ideas: [
+      { id: 'idea-1', title: 'Существующая идея', details: '', nextStep: '', status: 'inbox', competencyIds: [], levelSignal: 'specialist', levelReason: '', behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [], createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T00:00:00.000Z' },
+    ],
+    wins: [
+      { id: 'win-1', title: 'Существующий win', impact: 'x', evidence: 'y', metrics: '', confirmedBy: '', competencyIds: [], behaviorRefs: [], levelSignal: 'senior', sourceIdeaId: null, workSummary: [], noteSummary: [], date: '2026-07-15', reportReady: true, createdAt: '2026-07-15T00:00:00.000Z' },
+    ],
+    reports: [{ id: 'report-1', title: 'Старый отчёт', type: 'monthly', periodStart: '2026-06-01', periodEnd: '2026-06-30', winIds: ['win-1'], ideaIds: [], content: 'x', createdAt: '2026-07-01T00:00:00.000Z' }],
+  }
+  const migrated = migrateState(v4State)
+  assert.equal(migrated.version, 5)
+  assert.equal(migrated.notes.length, 1)
+  assert.equal(migrated.notes[0].title, 'Новый подход к PR-рассылкам')
+  assert.equal(migrated.ideas.length, 1)
+  assert.equal(migrated.wins.length, 1)
+  assert.equal(migrated.reports.length, 1)
+  assert.equal(migrated.captures, undefined)
+})
+
+test('migrateState is idempotent on an already-v5 state', () => {
+  const v5State = {
+    version: 5,
+    profile: { name: 'Мария', role: 'Digital Marketing Manager', market: 'Brazil', currentLevel: 'senior', reportingRhythm: 'monthly', cycleEnd: '2026-12-31' },
+    notes: [{ id: 'note-1', title: 'Заметка', body: '', rawText: 'Заметка', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', convertedIdeaId: null }],
+    ideas: [],
+    wins: [],
+    reports: [],
+  }
+  const migratedOnce = migrateState(v5State)
+  const migratedTwice = migrateState(migratedOnce)
+  assert.deepEqual(migratedOnce.notes, migratedTwice.notes)
+  assert.equal(migratedTwice.version, 5)
 })

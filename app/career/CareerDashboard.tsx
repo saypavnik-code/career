@@ -16,17 +16,16 @@ import {
   PREVIOUS_STORAGE_KEYS,
   STORAGE_KEY,
   buildCoachNotes,
-  captureToIdea,
   captureToWinDraft,
-  classifyCapture,
   computeGrowthPath,
-  createCapture,
   createDefaultState,
   createId,
+  createNote,
   deleteWin as deleteWinFromState,
   demoState,
   inferLevelSignal,
   migrateState,
+  noteToIdea,
   promoteIdeaToWin,
   selectWinsForPeriod,
   suggestBehaviorRefs,
@@ -40,7 +39,6 @@ const ESCADA_AI_ENDPOINT = process.env.NEXT_PUBLIC_ESCADA_AI_ENDPOINT?.trim() ??
 type View = 'today' | 'ideas' | 'wins' | 'reports' | 'growth'
 type IdeaStatus = 'inbox' | 'exploring' | 'won' | 'archived'
 type WorkStatus = 'backlog' | 'doing' | 'done'
-type CaptureKind = 'idea' | 'win' | 'note'
 type ReportType = 'weekly' | 'monthly' | 'one-to-one' | 'performance' | 'promotion'
 type GrowthTab = 'path' | 'scale'
 type AiAction = 'idea_review' | 'win_rewrite' | 'report_draft' | 'report_review' | 'growth_guidance'
@@ -54,12 +52,14 @@ interface Profile {
   cycleEnd: string
 }
 
-interface Capture {
+interface Note {
   id: string
-  text: string
-  suggestedKind: CaptureKind
-  status: 'unclassified' | 'classified' | 'converted'
+  title: string
+  body: string
+  rawText: string
   createdAt: string
+  updatedAt: string
+  convertedIdeaId: string | null
 }
 
 interface WorkItem {
@@ -133,7 +133,7 @@ interface CareerState {
   version: number
   onboardingComplete: boolean
   profile: Profile
-  captures: Capture[]
+  notes: Note[]
   ideas: Idea[]
   wins: Win[]
   reports: Report[]
@@ -220,7 +220,13 @@ function criterionText(ref: string) {
 }
 
 function newIdea(currentLevel: LevelKey, title = '') {
-  return captureToIdea({ id: createId('capture'), text: title }, currentLevel) as unknown as Idea
+  const inferred = inferLevelSignal(title, currentLevel) as { level: LevelKey; reason: string }
+  const now = new Date().toISOString()
+  return {
+    id: createId('idea'), title, details: '', nextStep: '', status: 'inbox', competencyIds: [],
+    levelSignal: inferred.level, levelReason: inferred.reason, behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [],
+    createdAt: now, updatedAt: now,
+  } as Idea
 }
 
 function emptyWin(): WinDraft {
@@ -250,6 +256,7 @@ export default function CareerDashboard() {
   const [state, setState] = useState<CareerState>(() => asState(createDefaultState()))
   const [hydrated, setHydrated] = useState(false)
   const [quickText, setQuickText] = useState('')
+  const [openNote, setOpenNote] = useState<Note | null>(null)
   const [ideaDraft, setIdeaDraft] = useState<Idea | null>(null)
   const [ideaAiOnOpen, setIdeaAiOnOpen] = useState(false)
   const [winDraft, setWinDraft] = useState<WinDraft | null>(null)
@@ -332,34 +339,25 @@ export default function CareerDashboard() {
     }
   }
 
-  function submitQuickCapture(event: FormEvent) {
+  function submitNote(event: FormEvent) {
     event.preventDefault()
-    const text = quickText.trim()
-    if (!text) return
-    const capture = createCapture(text) as unknown as Capture
-    updateState((current) => ({ ...current, captures: [capture, ...current.captures] }))
+    const note = createNote(quickText) as unknown as Note | null
+    if (!note) return
+    updateState((current) => ({ ...current, notes: [note, ...current.notes] }))
     setQuickText('')
     setNotice('Мысль сохранена')
   }
 
-  function classifySavedCapture(capture: Capture, kind: CaptureKind) {
-    if (kind === 'idea') {
-      const idea = captureToIdea(capture as unknown as Record<string, unknown>, state.profile.currentLevel) as unknown as Idea
-      updateState((current) => ({
-        ...current,
-        captures: current.captures.map((item) => item.id === capture.id ? { ...item, status: 'converted' } : item),
-        ideas: [idea, ...current.ideas],
-      }))
-      setIdeaDraft(idea)
-      return
-    }
-    if (kind === 'win') {
-      updateState((current) => ({ ...current, captures: current.captures.map((item) => item.id === capture.id ? { ...item, status: 'converted' } : item) }))
-      setWinDraft(captureToWinDraft(capture as unknown as Record<string, unknown>) as unknown as WinDraft)
-      return
-    }
-    updateState((current) => ({ ...current, captures: current.captures.map((item) => item.id === capture.id ? { ...item, status: 'classified', suggestedKind: 'note' } : item) }))
-    setNotice('Оставлено как заметка')
+  function convertNoteToIdea(note: Note) {
+    const result = noteToIdea(note as unknown as Record<string, unknown>, state.profile.currentLevel) as unknown as { idea: Idea; note: Note }
+    updateState((current) => ({
+      ...current,
+      notes: current.notes.map((item) => item.id === note.id ? result.note : item),
+      ideas: [result.idea, ...current.ideas],
+    }))
+    setOpenNote(null)
+    setIdeaAiOnOpen(false)
+    setIdeaDraft(result.idea)
   }
 
   function saveIdea(draft: Idea, close = true) {
@@ -486,7 +484,7 @@ export default function CareerDashboard() {
           <button type="button" className={styles.profileChip} onClick={() => setProfileOpen(true)}><span>{state.profile.name.slice(0, 1) || 'Э'}</span><div><strong>{state.profile.name || 'Мой профиль'}</strong><small>{state.profile.role}</small></div></button>
         </header>
 
-        {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitQuickCapture} captures={state.captures.slice(0, 4)} activeIdeas={activeIdeas.slice(0, 3)} coachNote={coachNotes[0]} onClassify={classifySavedCapture} onOpenIdea={(idea) => { setIdeaAiOnOpen(false); setIdeaDraft(idea) }} onNewIdea={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpenWin={() => setWinDraft(emptyWin())} onView={setView} />}
+        {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
         {view === 'ideas' && <IdeasView ideas={filteredIdeas} filter={ideaFilter} onFilter={setIdeaFilter} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => { setIdeaAiOnOpen(false); setIdeaDraft(idea) }} onAi={(idea) => { setIdeaAiOnOpen(true); setIdeaDraft(idea) }} />}
         {view === 'wins' && <WinsView wins={state.wins} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} />}
@@ -499,42 +497,83 @@ export default function CareerDashboard() {
       {profileOpen && <ProfileModal profile={state.profile} onClose={() => setProfileOpen(false)} onSave={(profile) => { updateState((current) => ({ ...current, profile })); setProfileOpen(false); setNotice('Профиль обновлён') }} onExport={exportData} onImport={() => importRef.current?.click()} />}
       {ideaDraft && <IdeaWorkspace draft={ideaDraft} profile={state.profile} autoAi={ideaAiOnOpen} busy={aiBusy} error={aiError} onClose={() => { setIdeaDraft(null); setIdeaAiOnOpen(false) }} onSave={saveIdea} onPromote={startWinFromIdea} onAi={(idea) => requestAi('idea_review', idea as unknown as Record<string, unknown>, idea.competencyIds)} />}
       {winDraft && <WinModal draft={winDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setWinDraft(null)} onSave={saveWin} onDelete={removeWin} onAi={(win) => requestAi('win_rewrite', win as unknown as Record<string, unknown>, win.competencyIds)} />}
+      {openNote && <NoteOverlay note={openNote} busy={aiBusy} error={aiError} onClose={() => setOpenNote(null)} onConvert={convertNoteToIdea} onAi={(note) => requestAi('idea_review', { title: note.title, details: note.body || note.rawText } as unknown as Record<string, unknown>, [])} />}
       <input ref={importRef} className={styles.hiddenInput} type="file" accept="application/json" onChange={importData} />
       {notice && <div className={styles.toast} role="status">{notice}</div>}
     </main>
   )
 }
 
-function TodayView({ quickText, onQuickText, onSubmit, captures, activeIdeas, coachNote, onClassify, onOpenIdea, onNewIdea, onOpenWin, onView }: {
+function noteExcerpt(note: Note) {
+  const source = note.body || note.rawText
+  const trimmed = source.replace(/\s+/g, ' ').trim()
+  if (trimmed.length <= 90) return trimmed
+  return `${trimmed.slice(0, 90).trimEnd()}…`
+}
+
+function noteRelativeDate(value: string) {
+  const created = new Date(value).getTime()
+  const diffDays = Math.floor((Date.now() - created) / (24 * 60 * 60 * 1000))
+  if (diffDays <= 0) return 'Сегодня'
+  if (diffDays === 1) return 'Вчера'
+  if (diffDays < 7) return `${diffDays} дн. назад`
+  return formatDate(value.slice(0, 10))
+}
+
+function TodayView({ quickText, onQuickText, onSubmit, notes, onOpenNote }: {
   quickText: string
   onQuickText: (value: string) => void
   onSubmit: (event: FormEvent) => void
-  captures: Capture[]
-  activeIdeas: Idea[]
-  coachNote?: { title: string; text: string; ideaId?: string }
-  onClassify: (capture: Capture, kind: CaptureKind) => void
-  onOpenIdea: (idea: Idea) => void
-  onNewIdea: () => void
-  onOpenWin: () => void
-  onView: (view: View) => void
+  notes: Note[]
+  onOpenNote: (note: Note) => void
 }) {
   return <div className={styles.pageStack}>
     <section className={`${styles.heroCard} ${styles.calmHero}`}>
-      <div className={styles.heroCopy}><span className={styles.pill}>Быстрая мысль</span><h2>Что произошло?</h2><p>Запишите идею, результат или наблюдение свободным текстом. Тип можно выбрать позже.</p></div>
-      <form className={`${styles.quickCapture} ${styles.quickThought}`} onSubmit={onSubmit}><textarea value={quickText} onChange={(event) => onQuickText(event.target.value)} placeholder="Например: новый угол с собственными данными может заинтересовать бизнес-СМИ…" aria-label="Быстрая заметка" /><button type="submit" className={styles.primaryButton}>Записать</button></form>
-      <div className={styles.compactActions}><button type="button" className={styles.textButton} onClick={onNewIdea}>Открыть новую идею</button><button type="button" className={styles.textButton} onClick={onOpenWin}>Зафиксировать win</button></div>
+      <div className={styles.heroCopy}><span className={styles.pill}>Быстрая мысль</span><h2>Есть новая мысль?</h2></div>
+      <form className={`${styles.quickCapture} ${styles.quickThought}`} onSubmit={onSubmit}><textarea value={quickText} onChange={(event) => onQuickText(event.target.value)} aria-label="Быстрая мысль" /><button type="submit" className={styles.primaryButton}>Записать</button></form>
     </section>
 
-    {captures.length > 0 && <section className={styles.panel}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Последние записи</span><h3>Разобрать позже</h3></div></div><div className={styles.captureList}>{captures.map((capture) => {
-      const suggestion = classifyCapture(capture.text)
-      return <article className={styles.captureCard} key={capture.id}><p>{capture.text}</p>{capture.status === 'unclassified' ? <div className={styles.suggestionBar}><span>{suggestion.reason}</span><div><button type="button" className={styles.secondaryButton} onClick={() => onClassify(capture, 'idea')}>Похоже на идею</button><button type="button" className={styles.secondaryButton} onClick={() => onClassify(capture, 'win')}>Похоже на результат</button><button type="button" className={styles.secondaryButton} onClick={() => onClassify(capture, 'note')}>Оставить заметкой</button></div></div> : <span className={styles.softLabel}>{capture.status === 'converted' ? 'Перенесено' : 'Заметка'}</span>}</article>
-    })}</div></section>}
-
-    <div className={styles.twoColumn}>
-      <section className={styles.panel}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Продолжить</span><h3>Идеи в работе</h3></div><button className={styles.secondaryButton} type="button" onClick={() => onView('ideas')}>Все идеи</button></div><div className={styles.cardList}>{activeIdeas.length ? activeIdeas.map((idea) => <article className={styles.ideaCompact} key={idea.id}><div><span className={styles.statusBadge} data-status={idea.status}>{statusLabels[idea.status]}</span><h4>{idea.title}</h4><p>{idea.nextStep || 'Следующий шаг пока не определён'}</p></div><button type="button" className={styles.secondaryButton} onClick={() => onOpenIdea(idea)}>Открыть</button></article>) : <EmptyState title="Пока нет идей" text="Запишите свободную мысль или создайте идею сразу." action="Создать идею" onAction={onNewIdea} />}</div></section>
-      <section className={styles.promptCard}><div className={styles.promptCardCopy}><span className={styles.eyebrow}>Подсказка Эскады</span><h3>{coachNote?.title || 'Сохраняйте доказательства по ходу работы'}</h3><p>{coachNote?.text || 'Ссылка, артефакт, отзыв или принятое решение делают будущий отчёт убедительнее.'}</p></div>{coachNote?.ideaId && <button type="button" className={styles.secondaryButton} onClick={() => onView('ideas')}>Открыть идеи</button>}</section>
-    </div>
+    {notes.length > 0 ? (
+      <section className={styles.pinBoard}>
+        {notes.map((note) => (
+          <article className={styles.noteCard} key={note.id} onClick={() => onOpenNote(note)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpenNote(note) }}>
+            <h4>{note.title}</h4>
+            <p>{noteExcerpt(note)}</p>
+            <span className={styles.noteCardDate}>{noteRelativeDate(note.createdAt)}</span>
+          </article>
+        ))}
+      </section>
+    ) : (
+      <EmptyState title="Пока нет мыслей" text="Запишите первую мысль в форме выше — тип и детали можно добавить позже." action="Понятно" onAction={() => {}} />
+    )}
   </div>
+}
+
+function NoteOverlay({ note, busy, error, onClose, onConvert, onAi }: {
+  note: Note
+  busy: string
+  error: string
+  onClose: () => void
+  onConvert: (note: Note) => void
+  onAi: (note: Note) => Promise<AiResponse>
+}) {
+  const [guidance, setGuidance] = useState<AiResponse | null>(null)
+  async function runAi() { setGuidance(await onAi(note)) }
+  return <Modal title={note.title} subtitle={formatDate(note.createdAt.slice(0, 10))} onClose={onClose}>
+    <div className={styles.modalBody}>
+      <p className={styles.noteFullText}>{note.body || note.rawText}</p>
+      {error && <p className={styles.aiError}>{error}</p>}
+      {guidance && <div className={styles.guidanceBanner}>
+        <strong>{guidance.headline}</strong>
+        {guidance.strengths.length > 0 && <p>{guidance.strengths.map((item) => item.text).join(' ')}</p>}
+        {guidance.nextStep && <p><strong>Следующий шаг.</strong> {guidance.nextStep}</p>}
+      </div>}
+      <div className={styles.modalActions}>
+        <button className={styles.primaryButton} type="button" onClick={() => onConvert(note)}>Это идея!</button>
+        <button className={styles.aiMiniButton} type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Думаем…' : '✦ Улучшить'}</button>
+      </div>
+    </div>
+  </Modal>
 }
 
 function IdeasView({ ideas, filter, onFilter, onNew, onOpen, onAi }: { ideas: Idea[]; filter: 'all' | IdeaStatus; onFilter: (value: 'all' | IdeaStatus) => void; onNew: () => void; onOpen: (idea: Idea) => void; onAi: (idea: Idea) => void }) {

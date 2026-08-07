@@ -1,7 +1,7 @@
-export const STORAGE_KEY = 'escada:v4'
-export const PREVIOUS_STORAGE_KEYS = ['escada:v3', 'career-os:v2', 'career-os:v1']
+export const STORAGE_KEY = 'escada:v5'
+export const PREVIOUS_STORAGE_KEYS = ['escada:v4', 'escada:v3', 'career-os:v2', 'career-os:v1']
 export const LEGACY_STORAGE_KEY = 'career-os:v1'
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const LEVEL_ORDER = ['specialist', 'senior', 'lead']
@@ -117,7 +117,7 @@ export function computeInsights(state) {
   const ideas = Array.isArray(state?.ideas) ? state.ideas : []
   const wins = Array.isArray(state?.wins) ? state.wins : []
   const reports = Array.isArray(state?.reports) ? state.reports : []
-  const captures = Array.isArray(state?.captures) ? state.captures : []
+  const notes = Array.isArray(state?.notes) ? state.notes : []
   const activeIdeas = ideas.filter((idea) => idea.status !== 'archived' && idea.status !== 'won')
   const reportReadyWins = wins.filter((win) => win.reportReady !== false)
   const completedWork = ideas.flatMap((idea) => idea.workItems ?? []).filter((item) => item.status === 'done')
@@ -135,7 +135,7 @@ export function computeInsights(state) {
     .map(([id, count]) => ({ id, count }))
 
   return {
-    captures: captures.length,
+    notes: notes.length,
     activeIdeas: activeIdeas.length,
     exploredIdeas: ideas.filter((idea) => idea.status === 'exploring').length,
     wins: wins.length,
@@ -362,7 +362,7 @@ export function createDefaultState(now = new Date()) {
       reportingRhythm: 'monthly',
       cycleEnd: end.toISOString().slice(0, 10),
     },
-    captures: [],
+    notes: [],
     ideas: [],
     wins: [],
     reports: [],
@@ -383,8 +383,8 @@ export function demoState(now = new Date()) {
       currentLevel: 'senior',
       reportingRhythm: 'monthly',
     },
-    captures: [
-      { id: 'capture-demo-1', text: 'Проверить, можно ли превратить данные исследования в серию PR-углов', suggestedKind: 'idea', status: 'unclassified', createdAt: new Date(now.getTime() - DAY_MS).toISOString() },
+    notes: [
+      createNote('Проверить, можно ли превратить данные исследования в серию PR-углов', new Date(now.getTime() - DAY_MS)),
     ],
     ideas: [
       {
@@ -474,6 +474,41 @@ function normalizeCapture(capture) {
   }
 }
 
+function normalizeNote(note) {
+  const rawText = note?.rawText ?? note?.text ?? ''
+  const derived = deriveNoteTitle(rawText)
+  return {
+    id: note?.id ?? createId('note'),
+    title: note?.title || derived.title || String(rawText).slice(0, 40),
+    body: note?.body ?? derived.body,
+    rawText: String(rawText),
+    createdAt: note?.createdAt ?? new Date().toISOString(),
+    updatedAt: note?.updatedAt ?? note?.createdAt ?? new Date().toISOString(),
+    convertedIdeaId: note?.convertedIdeaId ?? null,
+  }
+}
+
+// Best-effort v4 -> v5 conversion for one Capture. A capture already marked
+// 'converted' in v4 is matched to a same-title idea when one exists purely
+// so the note keeps its convertedIdeaId link across the upgrade; if no match
+// is found the note migrates unlinked rather than blocking migration.
+function captureToNote(capture, migratedIdeas) {
+  const text = capture?.text ?? ''
+  const { title, body } = deriveNoteTitle(text)
+  const linkedIdea = capture?.status === 'converted'
+    ? (migratedIdeas ?? []).find((idea) => idea.title === text || idea.title === title)
+    : null
+  return {
+    id: capture?.id ? `note-${capture.id}` : createId('note'),
+    title: title || String(text).slice(0, 40),
+    body,
+    rawText: text,
+    createdAt: capture?.createdAt ?? new Date().toISOString(),
+    updatedAt: capture?.createdAt ?? new Date().toISOString(),
+    convertedIdeaId: linkedIdea?.id ?? null,
+  }
+}
+
 function normalizeIdea(idea, fallbackLevel = 'specialist') {
   const text = `${idea?.title ?? ''} ${idea?.details ?? ''} ${idea?.nextStep ?? ''}`
   const inferred = inferLevelSignal(text, fallbackLevel)
@@ -533,13 +568,23 @@ export function migrateState(raw, fallback = createDefaultState()) {
   const fallbackLevel = raw?.profile?.currentLevel ?? fallback.profile.currentLevel
 
   if (Array.isArray(raw.ideas) && Array.isArray(raw.wins)) {
+    const migratedIdeas = raw.ideas.map((idea) => normalizeIdea(idea, fallbackLevel))
+    const rawNotes = Array.isArray(raw.notes) ? raw.notes : null
+    const rawCaptures = Array.isArray(raw.captures) ? raw.captures : []
+    const notes = rawNotes
+      ? rawNotes.map(normalizeNote)
+      : rawCaptures.map((capture) => captureToNote(capture, migratedIdeas))
+    // Spreading ...raw would carry forward a stray v4 `captures` key even
+    // though `notes` below is the new source of truth — strip it explicitly
+    // so a migrated state never exposes both fields at once.
+    const { captures: _droppedCaptures, ...rawWithoutCaptures } = raw
     return {
       ...fallback,
-      ...raw,
+      ...rawWithoutCaptures,
       version: SCHEMA_VERSION,
       profile: { ...fallback.profile, ...(raw.profile ?? {}), currentLevel: fallbackLevel },
-      captures: Array.isArray(raw.captures) ? raw.captures.map(normalizeCapture) : [],
-      ideas: raw.ideas.map((idea) => normalizeIdea(idea, fallbackLevel)),
+      notes,
+      ideas: migratedIdeas,
       wins: raw.wins.map(normalizeWin),
       reports: Array.isArray(raw.reports) ? raw.reports : [],
     }
@@ -551,7 +596,7 @@ export function migrateState(raw, fallback = createDefaultState()) {
     ...fallback,
     onboardingComplete: Boolean(raw.profile),
     profile: { ...fallback.profile, ...(raw.profile ?? {}), currentLevel: fallbackLevel },
-    captures: [],
+    notes: [],
     ideas: legacyTasks.map((task) => migrateLegacyTask(task, fallbackLevel)),
     wins: legacyWins.map(normalizeWin),
     reports: [],
@@ -588,6 +633,82 @@ export function captureToIdea(capture, currentLevel = 'specialist') {
 
 export function captureToWinDraft(capture) {
   return { sourceIdeaId: null, title: capture?.text ?? '', impact: '', evidence: '', metrics: '', confirmedBy: '', date: todayIso(), competencyIds: [], behaviorRefs: [], levelSignal: 'specialist', workSummary: [], noteSummary: [], reportReady: true }
+}
+
+// --- Note: the quick-thought unit (AI-First roadmap section 4.3) ----------
+//
+// Title is always the first 4 words (or fewer, if the first non-empty line
+// is shorter) of the first non-empty line. Everything else — the remainder
+// of that line plus every following line, verbatim, line breaks intact —
+// becomes the body. rawText keeps the original input losslessly regardless
+// of how title/body get displayed later.
+
+export function deriveNoteTitle(rawText) {
+  const text = String(rawText ?? '')
+  const lines = text.split('\n')
+  const firstIndex = lines.findIndex((line) => line.trim().length > 0)
+  if (firstIndex === -1) return { title: '', body: '' }
+
+  const firstLine = lines[firstIndex]
+  const words = firstLine.split(' ')
+  const nonEmptyWordCount = words.filter((word) => word.length > 0).length
+  const titleWordCount = Math.min(4, nonEmptyWordCount)
+
+  // Walk the split words and take exactly titleWordCount *non-empty* tokens,
+  // preserving original spacing for the remainder of the line.
+  let taken = 0
+  let splitAt = words.length
+  for (let i = 0; i < words.length; i += 1) {
+    if (words[i].length > 0) taken += 1
+    if (taken === titleWordCount) { splitAt = i + 1; break }
+  }
+  const title = words.slice(0, splitAt).join(' ').trim()
+  const restOfFirstLine = words.slice(splitAt).join(' ')
+  const remainingLines = lines.slice(firstIndex + 1)
+  const bodyLines = (restOfFirstLine ? [restOfFirstLine] : []).concat(remainingLines)
+  const body = bodyLines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '')
+
+  return { title, body }
+}
+
+export function createNote(rawText, now = new Date()) {
+  const text = String(rawText ?? '').trim()
+  if (!text) return null
+  const { title, body } = deriveNoteTitle(text)
+  const iso = now.toISOString()
+  return {
+    id: createId('note'),
+    title: title || text.slice(0, 40),
+    body,
+    rawText: text,
+    createdAt: iso,
+    updatedAt: iso,
+    convertedIdeaId: null,
+  }
+}
+
+export function noteToIdea(note, currentLevel = 'specialist') {
+  const meaning = String(note?.body ?? '').trim() || String(note?.rawText ?? '').trim()
+  const inferred = inferLevelSignal(`${note?.title ?? ''} ${meaning}`, currentLevel)
+  const now = new Date().toISOString()
+  const idea = {
+    id: createId('idea'),
+    title: note?.title || 'Новая идея',
+    details: meaning,
+    nextStep: '',
+    status: 'inbox',
+    competencyIds: [],
+    levelSignal: inferred.level,
+    levelReason: inferred.reason,
+    behaviorRefs: [],
+    workItems: [],
+    notes: [],
+    evidenceNotes: [],
+    createdAt: now,
+    updatedAt: now,
+  }
+  const updatedNote = { ...note, convertedIdeaId: idea.id, updatedAt: now }
+  return { idea, note: updatedNote }
 }
 
 export function winGapHints(win) {
