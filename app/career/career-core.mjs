@@ -156,6 +156,7 @@ export function promoteIdeaToWin(idea, patch = {}) {
     title: patch.title ?? idea.title,
     impact: patch.impact ?? '',
     evidence: patch.evidence ?? evidenceNotes.join('\n'),
+    sourceContext: patch.sourceContext ?? idea.details ?? '',
     competencyIds: patch.competencyIds ?? idea.competencyIds ?? [],
     behaviorRefs: patch.behaviorRefs ?? idea.behaviorRefs ?? [],
     levelSignal: patch.levelSignal ?? idea.levelSignal ?? 'specialist',
@@ -665,7 +666,7 @@ export function captureToIdea(capture, currentLevel = 'specialist') {
 }
 
 export function captureToWinDraft(capture) {
-  return { sourceIdeaId: null, title: capture?.text ?? '', impact: '', evidence: '', metrics: '', confirmedBy: '', date: todayIso(), competencyIds: [], behaviorRefs: [], levelSignal: 'specialist', workSummary: [], noteSummary: [], reportReady: true }
+  return { sourceIdeaId: null, sourceContext: '', title: capture?.text ?? '', impact: '', evidence: '', metrics: '', confirmedBy: '', date: todayIso(), competencyIds: [], behaviorRefs: [], levelSignal: 'specialist', workSummary: [], noteSummary: [], reportReady: true }
 }
 
 // --- Note: the quick-thought unit (AI-First roadmap section 4.3) ----------
@@ -717,6 +718,26 @@ export function createNote(rawText, now = new Date()) {
     createdAt: iso,
     updatedAt: iso,
     convertedIdeaId: null,
+  }
+}
+
+export function updateNote(state, noteId, rawText) {
+  const notes = Array.isArray(state?.notes) ? state.notes : []
+  const text = String(rawText ?? '').trim()
+  if (!text) return state
+  const existing = notes.find((item) => item.id === noteId)
+  if (!existing) return state
+  const { title, body } = deriveNoteTitle(text)
+  const updated = {
+    ...existing,
+    title: title || text.slice(0, 40),
+    body,
+    rawText: text,
+    updatedAt: new Date().toISOString(),
+  }
+  return {
+    ...state,
+    notes: notes.map((item) => item.id === noteId ? updated : item),
   }
 }
 

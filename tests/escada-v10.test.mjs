@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildLocalGuidance } from '../app/career/local-guidance.mjs'
-import { deleteWin, deriveNoteTitle, migrateIdeaStatus, migrateState } from '../app/career/career-core.mjs'
+import { deleteWin, deriveNoteTitle, migrateIdeaStatus, migrateState, promoteIdeaToWin, updateNote } from '../app/career/career-core.mjs'
 
 const profile = {
   name: 'Мария',
@@ -246,4 +246,57 @@ test('migrateState routes a v4-era idea status through migrateIdeaStatus end to 
   assert.equal(migrated.ideas.find((idea) => idea.id === 'i1').status, 'concept')
   assert.equal(migrated.ideas.find((idea) => idea.id === 'i2').status, 'in_progress')
   assert.equal(migrated.ideas.find((idea) => idea.id === 'i3').status, 'outcomes')
+})
+
+
+test('promoteIdeaToWin carries idea.details into win.sourceContext', () => {
+  const idea = {
+    id: 'idea-1',
+    title: 'Обучить региональные команды',
+    details: 'Хочу выстроить процесс обучения новых аналитиков в трёх регионах.',
+    competencyIds: ['analytics'],
+    behaviorRefs: [],
+    levelSignal: 'senior',
+    workItems: [],
+    notes: [],
+    evidenceNotes: [],
+  }
+  const win = promoteIdeaToWin(idea, {})
+  assert.equal(win.sourceContext, idea.details)
+  assert.equal(win.sourceIdeaId, 'idea-1')
+})
+
+test('promoteIdeaToWin respects an explicit sourceContext override in patch', () => {
+  const idea = { id: 'idea-2', title: 'X', details: 'original', competencyIds: [], behaviorRefs: [], levelSignal: 'senior', workItems: [], notes: [], evidenceNotes: [] }
+  const win = promoteIdeaToWin(idea, { sourceContext: 'overridden' })
+  assert.equal(win.sourceContext, 'overridden')
+})
+
+test('updateNote re-derives title/body from edited raw text', () => {
+  const state = {
+    notes: [
+      { id: 'note-1', title: 'Старый заголовок', body: 'старое тело', rawText: 'Старый заголовок старое тело', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', convertedIdeaId: null },
+    ],
+  }
+  const updated = updateNote(state, 'note-1', 'Новый подход к PR-рассылкам для локальных медиа')
+  const note = updated.notes.find((item) => item.id === 'note-1')
+  assert.equal(note.title, 'Новый подход к PR-рассылкам')
+  assert.equal(note.body, 'для локальных медиа')
+  assert.equal(note.rawText, 'Новый подход к PR-рассылкам для локальных медиа')
+})
+
+test('updateNote preserves convertedIdeaId and is a safe no-op for an unknown note id', () => {
+  const state = {
+    notes: [
+      { id: 'note-1', title: 'X', body: '', rawText: 'X', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', convertedIdeaId: 'idea-9' },
+    ],
+  }
+  const updated = updateNote(state, 'note-1', 'X переработано полностью')
+  assert.equal(updated.notes[0].convertedIdeaId, 'idea-9')
+
+  const untouched = updateNote(state, 'does-not-exist', 'irrelevant')
+  assert.deepEqual(untouched, state)
+
+  const emptyText = updateNote(state, 'note-1', '   ')
+  assert.deepEqual(emptyText, state)
 })

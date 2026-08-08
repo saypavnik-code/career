@@ -840,3 +840,25 @@
   .ideaWorkspaceBody { padding: 20px 18px 24px; gap: 22px; }
   .ideaActionRow select { min-width: 0; }
 }
+
+/* escada-idea-to-win-v18: read-only "Исходный контекст" reference on WinModal */
+.sourceContextRef {
+  border-radius: 14px;
+  padding: 12px 15px;
+  background: var(--soft);
+}
+.sourceContextRef span {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.sourceContextRef p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.55;
+}

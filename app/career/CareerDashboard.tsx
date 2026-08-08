@@ -22,6 +22,7 @@ import {
   createId,
   createNote,
   deleteWin as deleteWinFromState,
+  updateNote as updateNoteFromState,
   demoState,
   inferLevelSignal,
   migrateState,
@@ -105,6 +106,7 @@ interface Win {
   title: string
   impact: string
   evidence: string
+  sourceContext: string
   metrics: string
   confirmedBy: string
   competencyIds: string[]
@@ -237,6 +239,7 @@ function newIdea(currentLevel: LevelKey, title = '') {
 function emptyWin(): WinDraft {
   return {
     sourceIdeaId: null,
+    sourceContext: '',
     title: '',
     impact: '',
     evidence: '',
@@ -349,6 +352,11 @@ export default function CareerDashboard() {
     updateState((current) => ({ ...current, notes: [note, ...current.notes] }))
     setQuickText('')
     setNotice('Мысль сохранена')
+  }
+
+  function editNote(noteId: string, rawText: string) {
+    updateState((current) => asState(updateNoteFromState(current as unknown as Record<string, unknown>, noteId, rawText)))
+    setNotice('Мысль обновлена')
   }
 
   function convertNoteToIdea(note: Note) {
@@ -507,7 +515,7 @@ export default function CareerDashboard() {
       {profileOpen && <ProfileModal profile={state.profile} onClose={() => setProfileOpen(false)} onSave={(profile) => { updateState((current) => ({ ...current, profile })); setProfileOpen(false); setNotice('Профиль обновлён') }} onExport={exportData} onImport={() => importRef.current?.click()} />}
       {ideaDraft && <IdeaWorkspace draft={ideaDraft} profile={state.profile} autoAi={ideaAiOnOpen} busy={aiBusy} error={aiError} onClose={() => { setIdeaDraft(null); setIdeaAiOnOpen(false) }} onSave={saveIdea} onPromote={startWinFromIdea} onAi={(idea) => requestAi('idea_review', idea as unknown as Record<string, unknown>, idea.competencyIds)} />}
       {winDraft && <WinModal draft={winDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setWinDraft(null)} onSave={saveWin} onDelete={removeWin} onAi={(win) => requestAi('win_rewrite', win as unknown as Record<string, unknown>, win.competencyIds)} />}
-      {openNote && <NoteOverlay note={openNote} busy={aiBusy} error={aiError} onClose={() => setOpenNote(null)} onConvert={convertNoteToIdea} onAi={(note) => requestAi('idea_review', { title: note.title, details: note.body || note.rawText } as unknown as Record<string, unknown>, [])} />}
+      {openNote && <NoteOverlay note={openNote} busy={aiBusy} error={aiError} onClose={() => setOpenNote(null)} onConvert={convertNoteToIdea} onEdit={editNote} onAi={(note) => requestAi('idea_review', { title: note.title, details: note.body || note.rawText } as unknown as Record<string, unknown>, [])} />}
       <input ref={importRef} className={styles.hiddenInput} type="file" accept="application/json" onChange={importData} />
       {notice && <div className={styles.toast} role="status">{notice}</div>}
     </main>
@@ -557,19 +565,23 @@ function TodayView({ quickText, onQuickText, onSubmit, notes, onOpenNote }: {
   </div>
 }
 
-function NoteOverlay({ note, busy, error, onClose, onConvert, onAi }: {
+function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
   note: Note
   busy: string
   error: string
   onClose: () => void
   onConvert: (note: Note) => void
+  onEdit: (noteId: string, rawText: string) => void
   onAi: (note: Note) => Promise<AiResponse>
 }) {
+  const [text, setText] = useState(note.rawText)
   const [guidance, setGuidance] = useState<AiResponse | null>(null)
+  const dirty = text.trim() !== note.rawText.trim()
   async function runAi() { setGuidance(await onAi(note)) }
+  function save() { if (text.trim()) onEdit(note.id, text) }
   return <Modal title={note.title} subtitle={formatDate(note.createdAt.slice(0, 10))} onClose={onClose}>
     <div className={styles.modalBody}>
-      <p className={styles.noteFullText}>{note.body || note.rawText}</p>
+      <textarea className={styles.largeTextarea} value={text} onChange={(event) => setText(event.target.value)} aria-label="Текст мысли" autoFocus />
       {error && <p className={styles.aiError}>{error}</p>}
       {guidance && <div className={styles.guidanceBanner}>
         <strong>{guidance.headline}</strong>
@@ -577,6 +589,7 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onAi }: {
         {guidance.nextStep && <p><strong>Следующий шаг.</strong> {guidance.nextStep}</p>}
       </div>}
       <div className={styles.modalActions}>
+        <button className={styles.secondaryButton} type="button" disabled={!dirty || !text.trim()} onClick={save}>Сохранить</button>
         <button className={styles.primaryButton} type="button" onClick={() => onConvert(note)}>Это идея!</button>
         <button className={styles.aiMiniButton} type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Думаем…' : '✦ Улучшить'}</button>
       </div>
@@ -736,7 +749,7 @@ function IdeaWorkspace({ draft: initial, profile, autoAi, busy, error, onClose, 
         <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as ActiveIdeaStatus })} aria-label="Статус идеи">
           {KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
         </select>
-        <button type="button" className={styles.primaryButton} disabled={!draft.title.trim()} onClick={() => onPromote(draft)}>Win!</button>
+        <button type="button" className={styles.primaryButton} disabled={!draft.title.trim() || draft.status === 'won'} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Win!</button>
       </div>
       <button type="button" className={styles.workspaceCloseButton} aria-label="Закрыть" onClick={onClose}>×</button>
     </header>
@@ -783,7 +796,7 @@ function WinModal({ draft: initial, profile, busy, error, onClose, onSave, onDel
   const winCurrentExpectations = winSelectedCompetencies.flatMap((id) => competencyById(id)?.levels[profile.currentLevel].slice(0, 2) ?? []).slice(0, 3)
   const winNextExpectations = winTargetLevel ? winSelectedCompetencies.flatMap((id) => competencyById(id)?.levels[winTargetLevel].slice(0, 2) ?? []).slice(0, 3) : []
   async function runAi() { setGuidance(await onAi(draft)) }
-  return <Modal title={draft.id ? 'Открыть win' : 'Зафиксировать win'} subtitle="Просто, но доказуемо. Эскада не будет придумывать недостающие факты." onClose={onClose}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); if (draft.title.trim()) onSave(draft) }}><label className={styles.field}>Что произошло?<input autoFocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label><label className={styles.field}>Почему это важно?<textarea value={draft.impact} onChange={(event) => setDraft({ ...draft, impact: event.target.value })} /></label><label className={styles.field}>Чем это подтверждается?<textarea value={draft.evidence} onChange={(event) => setDraft({ ...draft, evidence: event.target.value })} /></label><details className={styles.optionalBlock}><summary>Дополнительные детали — необязательно</summary><label className={styles.field}>Что изменилось в цифрах?<input value={draft.metrics} onChange={(event) => setDraft({ ...draft, metrics: event.target.value })} placeholder="Только реальные значения" /></label><label className={styles.field}>Кто подтвердил результат?<input value={draft.confirmedBy} onChange={(event) => setDraft({ ...draft, confirmedBy: event.target.value })} placeholder="Руководитель, команда, клиент — если это было" /></label></details>{gaps.length > 0 && <div className={styles.guidanceBanner}><strong>Чего не хватает для сильной формулировки</strong><ul>{gaps.map((item) => <li key={item}>{item}</li>)}</ul></div>}{draft.title.trim() && (winCurrentExpectations.length > 0 || winNextExpectations.length > 0) && <section className={styles.signalCard}><span className={styles.eyebrow}>Шкала компетенций</span><h3>Куда это может вести</h3><p>Локальная подсказка без обращения к ИИ — только по вашему тексту и шкале.</p>{winCurrentExpectations.length > 0 && <details><summary>Ожидания текущего уровня</summary><ul>{winCurrentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}{winTargetLevel && winNextExpectations.length > 0 && <details><summary>Как усилить до уровня «{levelLabels[winTargetLevel]}»</summary><ul>{winNextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}</section>}<button className={styles.aiMiniButton} type="button" disabled={busy === 'win_rewrite'} onClick={() => void runAi()}>{busy === 'win_rewrite' ? 'Усиливаем…' : '✦ Усилить формулировку'}</button>{error && <p className={styles.aiError}>{error}</p>}{guidance && <AiGuidancePanel guidance={guidance} compact onApplyRewrite={guidance.rewrite ? () => setDraft({ ...draft, ...(guidance.rewrite ?? {}) }) : undefined} />}<div className={styles.formGrid}><label>Дата<input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label><label className={styles.checkboxField}><input type="checkbox" checked={draft.reportReady} onChange={(event) => setDraft({ ...draft, reportReady: event.target.checked })} /><span>Предлагать для отчётов</span></label></div><div className={styles.modalActions}>{draft.id && <button className={styles.dangerButton} type="button" onClick={() => { if (window.confirm(`Удалить win «${draft.title || 'без названия'}»? Это действие необратимо.`)) onDelete(draft.id as string) }}>Удалить win</button>}<button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить win</button></div></form></Modal>
+  return <Modal title={draft.id ? 'Открыть win' : 'Зафиксировать win'} subtitle="Просто, но доказуемо. Эскада не будет придумывать недостающие факты." onClose={onClose}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); if (draft.title.trim()) onSave(draft) }}><label className={styles.field}>Что произошло?<input autoFocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label>{draft.sourceContext && <div className={styles.sourceContextRef}><span>Исходный контекст идеи</span><p>{draft.sourceContext}</p></div>}<label className={styles.field}>Почему это важно?<textarea value={draft.impact} onChange={(event) => setDraft({ ...draft, impact: event.target.value })} /></label><label className={styles.field}>Чем это подтверждается?<textarea value={draft.evidence} onChange={(event) => setDraft({ ...draft, evidence: event.target.value })} /></label><details className={styles.optionalBlock}><summary>Дополнительные детали — необязательно</summary><label className={styles.field}>Что изменилось в цифрах?<input value={draft.metrics} onChange={(event) => setDraft({ ...draft, metrics: event.target.value })} placeholder="Только реальные значения" /></label><label className={styles.field}>Кто подтвердил результат?<input value={draft.confirmedBy} onChange={(event) => setDraft({ ...draft, confirmedBy: event.target.value })} placeholder="Руководитель, команда, клиент — если это было" /></label></details>{gaps.length > 0 && <div className={styles.guidanceBanner}><strong>Чего не хватает для сильной формулировки</strong><ul>{gaps.map((item) => <li key={item}>{item}</li>)}</ul></div>}{draft.title.trim() && (winCurrentExpectations.length > 0 || winNextExpectations.length > 0) && <section className={styles.signalCard}><span className={styles.eyebrow}>Шкала компетенций</span><h3>Куда это может вести</h3><p>Локальная подсказка без обращения к ИИ — только по вашему тексту и шкале.</p>{winCurrentExpectations.length > 0 && <details><summary>Ожидания текущего уровня</summary><ul>{winCurrentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}{winTargetLevel && winNextExpectations.length > 0 && <details><summary>Как усилить до уровня «{levelLabels[winTargetLevel]}»</summary><ul>{winNextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}</section>}<button className={styles.aiMiniButton} type="button" disabled={busy === 'win_rewrite'} onClick={() => void runAi()}>{busy === 'win_rewrite' ? 'Усиливаем…' : '✦ Усилить формулировку'}</button>{error && <p className={styles.aiError}>{error}</p>}{guidance && <AiGuidancePanel guidance={guidance} compact onApplyRewrite={guidance.rewrite ? () => setDraft({ ...draft, ...(guidance.rewrite ?? {}) }) : undefined} />}<div className={styles.formGrid}><label>Дата<input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label><label className={styles.checkboxField}><input type="checkbox" checked={draft.reportReady} onChange={(event) => setDraft({ ...draft, reportReady: event.target.checked })} /><span>Предлагать для отчётов</span></label></div><div className={styles.modalActions}>{draft.id && <button className={styles.dangerButton} type="button" onClick={() => { if (window.confirm(`Удалить win «${draft.title || 'без названия'}»? Это действие необратимо.`)) onDelete(draft.id as string) }}>Удалить win</button>}<button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить win</button></div></form></Modal>
 }
 
 function AiGuidancePanel({ guidance, compact = false, onSaveNextStep, onApplyRewrite }: { guidance: AiResponse; compact?: boolean; onSaveNextStep?: () => void; onApplyRewrite?: () => void }) {
