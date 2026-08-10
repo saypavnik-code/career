@@ -266,7 +266,6 @@ export default function CareerDashboard() {
   const [quickText, setQuickText] = useState('')
   const [openNote, setOpenNote] = useState<Note | null>(null)
   const [ideaDraft, setIdeaDraft] = useState<Idea | null>(null)
-  const [ideaAiOnOpen, setIdeaAiOnOpen] = useState(false)
   const [winDraft, setWinDraft] = useState<WinDraft | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -367,7 +366,6 @@ export default function CareerDashboard() {
       ideas: [result.idea, ...current.ideas],
     }))
     setOpenNote(null)
-    setIdeaAiOnOpen(false)
     setIdeaDraft(result.idea)
   }
 
@@ -503,7 +501,7 @@ export default function CareerDashboard() {
         </header>
 
         {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
-        {view === 'ideas' && <IdeasView ideas={state.ideas} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => { setIdeaAiOnOpen(false); setIdeaDraft(idea) }} onStatusChange={changeIdeaStatus} />}
+        {view === 'ideas' && <IdeasView ideas={state.ideas} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} />}
         {view === 'wins' && <WinsView wins={state.wins} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} />}
@@ -513,7 +511,7 @@ export default function CareerDashboard() {
 
       {!state.onboardingComplete && <Onboarding initial={state.profile} onComplete={(profile) => updateState((current) => ({ ...current, onboardingComplete: true, profile }))} onDemo={() => setState(asState(demoState()))} />}
       {profileOpen && <ProfileModal profile={state.profile} onClose={() => setProfileOpen(false)} onSave={(profile) => { updateState((current) => ({ ...current, profile })); setProfileOpen(false); setNotice('Профиль обновлён') }} onExport={exportData} onImport={() => importRef.current?.click()} />}
-      {ideaDraft && <IdeaWorkspace draft={ideaDraft} profile={state.profile} autoAi={ideaAiOnOpen} busy={aiBusy} error={aiError} onClose={() => { setIdeaDraft(null); setIdeaAiOnOpen(false) }} onSave={saveIdea} onPromote={startWinFromIdea} onAi={(idea) => requestAi('idea_review', idea as unknown as Record<string, unknown>, idea.competencyIds)} />}
+      {ideaDraft && <IdeaWorkspace draft={ideaDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setIdeaDraft(null)} onSave={saveIdea} onPromote={startWinFromIdea} onAi={(idea) => requestAi('idea_review', idea as unknown as Record<string, unknown>, idea.competencyIds)} />}
       {winDraft && <WinModal draft={winDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setWinDraft(null)} onSave={saveWin} onDelete={removeWin} onAi={(win) => requestAi('win_rewrite', win as unknown as Record<string, unknown>, win.competencyIds)} />}
       {openNote && <NoteOverlay note={openNote} busy={aiBusy} error={aiError} onClose={() => setOpenNote(null)} onConvert={convertNoteToIdea} onEdit={editNote} onAi={(note) => requestAi('idea_review', { title: note.title, details: note.body || note.rawText } as unknown as Record<string, unknown>, [])} />}
       <input ref={importRef} className={styles.hiddenInput} type="file" accept="application/json" onChange={importData} />
@@ -722,12 +720,11 @@ function ScaleReference({ profile, onCreateIdea }: { profile: Profile; onCreateI
   return <section className={styles.competencyGrid}>{competencies.map((competency, index) => <article className={styles.competencyCard} key={competency.id}><div className={styles.competencyNumber}>{String(index + 1).padStart(2, '0')}</div><div><span className={styles.domainBadge}>{competency.shortTitle}</span><h3>{competency.title}</h3><p>{competency.summary}</p><div className={styles.expectationColumns}><section><small>Ожидания сейчас · {levelLabels[profile.currentLevel]}</small><ul>{competency.levels[profile.currentLevel].map((criterion) => <li key={criterion.id}>{criterion.text}</li>)}</ul></section><section><small>{target ? `Следующий уровень · ${levelLabels[target]}` : 'Усиление влияния'}</small><ul>{competency.levels[target ?? profile.currentLevel].map((criterion) => <li key={criterion.id}>{criterion.text}</li>)}</ul></section></div><button className={styles.textButton} type="button" onClick={() => onCreateIdea(competency)}>Создать growth idea</button></div></article>)}</section>
 }
 
-function IdeaWorkspace({ draft: initial, profile, autoAi, busy, error, onClose, onSave, onPromote, onAi }: { draft: Idea; profile: Profile; autoAi: boolean; busy: string; error: string; onClose: () => void; onSave: (idea: Idea, close?: boolean) => Idea; onPromote: (idea: Idea) => void; onAi: (idea: Idea) => Promise<AiResponse> }) {
+function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, onPromote, onAi }: { draft: Idea; profile: Profile; busy: string; error: string; onClose: () => void; onSave: (idea: Idea, close?: boolean) => Idea; onPromote: (idea: Idea) => void; onAi: (idea: Idea) => Promise<AiResponse> }) {
   const [draft, setDraft] = useState(initial)
   const [noteText, setNoteText] = useState('')
   const [evidenceText, setEvidenceText] = useState('')
   const [guidance, setGuidance] = useState<AiResponse | null>(null)
-  const hasAutoRun = useRef(false)
   const text = [draft.title, draft.details, draft.nextStep, ...draft.workItems.map((item) => item.title), ...draft.notes.map((item) => item.text)].join(' ')
   const suggestedCompetencies = suggestCompetencyIds(text, competencies, competencyKeywords)
   const inferred = inferLevelSignal(text, profile.currentLevel) as { level: LevelKey; reason: string }
@@ -737,7 +734,6 @@ function IdeaWorkspace({ draft: initial, profile, autoAi, busy, error, onClose, 
   const nextExpectations = target ? selectedCompetencies.flatMap((id) => competencyById(id)?.levels[target].slice(0, 2) ?? []).slice(0, 3) : []
 
   async function runAi() { setGuidance(await onAi(draft)) }
-  useEffect(() => { if (autoAi && !hasAutoRun.current) { hasAutoRun.current = true; void runAi() } }, [autoAi])
 
   function addNote() { const value = noteText.trim(); if (!value) return; setDraft((current) => ({ ...current, notes: [...current.notes, { id: createId('note'), text: value, createdAt: new Date().toISOString() }] })); setNoteText('') }
   function addEvidence() { const value = evidenceText.trim(); if (!value) return; setDraft((current) => ({ ...current, evidenceNotes: [...current.evidenceNotes, { id: createId('evidence'), text: value, createdAt: new Date().toISOString() }] })); setEvidenceText('') }

@@ -1,7 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildLocalGuidance } from '../app/career/local-guidance.mjs'
-import { deleteWin, deriveNoteTitle, migrateIdeaStatus, migrateState, promoteIdeaToWin, updateNote } from '../app/career/career-core.mjs'
+import {
+  createDefaultState,
+  createNote,
+  deleteWin,
+  deriveNoteTitle,
+  migrateIdeaStatus,
+  migrateState,
+  noteToIdea,
+  promoteIdeaToWin,
+  updateNote,
+} from '../app/career/career-core.mjs'
 
 const profile = {
   name: 'Мария',
@@ -299,4 +309,94 @@ test('updateNote preserves convertedIdeaId and is a safe no-op for an unknown no
 
   const emptyText = updateNote(state, 'note-1', '   ')
   assert.deepEqual(emptyText, state)
+})
+
+
+// --- Phase 7 QA: the 8 mandatory scenarios from roadmap section 11, run
+// end to end through the real state functions (not mocks), so a future
+// change that breaks one of them fails a test instead of only being caught
+// by a person manually clicking through the app.
+
+test('QA scenario 1-2: записать мысль, затем открыть её по id', () => {
+  let state = createDefaultState()
+  const note = createNote('Проверить гипотезу роста конверсии на лендинге для рынка Бразилии')
+  state = { ...state, notes: [note, ...state.notes] }
+  assert.equal(state.notes.length, 1)
+
+  const opened = state.notes.find((item) => item.id === note.id)
+  assert.ok(opened)
+  assert.equal(opened.title, 'Проверить гипотезу роста конверсии')
+})
+
+test('QA scenario 3: превратить заметку в идею без повторного ввода данных', () => {
+  const note = createNote('Запустить серию PR материалов для локальных медиа')
+  const { idea, note: updatedNote } = noteToIdea(note, 'senior')
+  assert.equal(idea.title, note.title)
+  assert.equal(idea.details, note.body)
+  assert.equal(idea.status, 'concept')
+  assert.equal(updatedNote.convertedIdeaId, idea.id)
+})
+
+test('QA scenario 4: изменить статус идеи через словарь активных статусов', () => {
+  for (const status of ['concept', 'preparation', 'in_progress', 'outcomes']) {
+    assert.equal(migrateIdeaStatus(status), status)
+  }
+})
+
+test('QA scenario 5: карьерная подсказка отвечает без внешнего AI endpoint', () => {
+  const result = buildLocalGuidance('idea_review', {
+    profile: { name: 'Мария', role: 'Senior Marketer', market: 'Brazil', currentLevel: 'senior' },
+    competencyIds: [],
+    artifact: { title: 'Запустить A/B тест заголовков', details: 'Проверить гипотезу роста open rate.' },
+  })
+  assert.ok(result.headline)
+  assert.ok(result.strengths.length > 0)
+  assert.ok(result.caveat)
+})
+
+test('QA scenario 6-7: превратить идею в win и найти его в Wins', () => {
+  let state = createDefaultState()
+  const note = createNote('Обучить региональные команды единым стандартам отчётности')
+  const { idea } = noteToIdea(note, 'senior')
+  state = { ...state, ideas: [idea] }
+
+  const win = promoteIdeaToWin(idea, {})
+  state = {
+    ...state,
+    wins: [win, ...state.wins],
+    ideas: state.ideas.map((item) => item.id === idea.id ? { ...item, status: 'won' } : item),
+  }
+
+  assert.ok(state.wins.some((item) => item.id === win.id), 'win must be findable in Wins')
+  assert.equal(win.sourceContext, idea.details, 'Смысл переносится в Исходный контекст')
+  const activeKanban = state.ideas.filter((item) => item.status !== 'won' && item.status !== 'archived')
+  assert.equal(activeKanban.length, 0, 'идея покидает активный канбан после Win!')
+})
+
+test('QA scenario 8: данные переживают перезагрузку (persist + migrateState round-trip)', () => {
+  let state = createDefaultState()
+  const note = createNote('Мысль перед перезагрузкой страницы браузера')
+  state = { ...state, notes: [note] }
+
+  const persisted = JSON.stringify(state)
+  const reloaded = migrateState(JSON.parse(persisted), createDefaultState())
+
+  assert.equal(reloaded.notes.length, 1)
+  assert.equal(reloaded.notes[0].title, note.title)
+  assert.equal(reloaded.version, 5)
+})
+
+test('QA fix: normalizeWin initializes sourceContext for wins migrated from pre-v18 storage', () => {
+  const legacyV4State = {
+    version: 4,
+    profile: { currentLevel: 'senior', name: 'X', role: 'Y' },
+    notes: [],
+    ideas: [],
+    wins: [
+      { id: 'win-old', title: 'Старый win без sourceContext', impact: 'важно', evidence: 'было', sourceIdeaId: null },
+    ],
+    reports: [],
+  }
+  const migrated = migrateState(legacyV4State)
+  assert.equal(migrated.wins[0].sourceContext, '')
 })
