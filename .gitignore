@@ -16,3 +16,5 @@ career_os_*_patch_v*.py
 apply_career_os_dashboard*.py
 escada_*_patch_v*.py
 !.env.example
+
+escada_*_v*.py
