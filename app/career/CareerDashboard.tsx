@@ -266,6 +266,7 @@ export default function CareerDashboard() {
   const [quickText, setQuickText] = useState('')
   const [openNote, setOpenNote] = useState<Note | null>(null)
   const [ideaDraft, setIdeaDraft] = useState<Idea | null>(null)
+  const [newIdeaFromNote, setNewIdeaFromNote] = useState<Idea | null>(null)
   const [winDraft, setWinDraft] = useState<WinDraft | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -366,7 +367,7 @@ export default function CareerDashboard() {
       ideas: [result.idea, ...current.ideas],
     }))
     setOpenNote(null)
-    setIdeaDraft(result.idea)
+    setNewIdeaFromNote(result.idea)
   }
 
   function saveIdea(draft: Idea, close = true) {
@@ -497,7 +498,7 @@ export default function CareerDashboard() {
       <section className={styles.workspace}>
         <header className={styles.topbar}>
           <div><p className={styles.eyebrow}>Записал → развил → подтвердил → оформил</p><h1>{navItems.find((item) => item.id === view)?.label}</h1></div>
-          <button type="button" className={styles.profileChip} onClick={() => setProfileOpen(true)}><span>{state.profile.name.slice(0, 1) || 'Э'}</span><div><strong>{state.profile.name || 'Мой профиль'}</strong><small>{state.profile.role}</small></div></button>
+          <button type="button" className={styles.profileChip} onClick={() => setProfileOpen(true)}><span>{state.profile.name.slice(0, 1) || 'Э'}</span><div><strong>{state.profile.name || 'Мой профиль'}</strong><small>{levelLabels[state.profile.currentLevel]}</small></div></button>
         </header>
 
         {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
@@ -512,6 +513,7 @@ export default function CareerDashboard() {
       {!state.onboardingComplete && <Onboarding initial={state.profile} onComplete={(profile) => updateState((current) => ({ ...current, onboardingComplete: true, profile }))} onDemo={() => setState(asState(demoState()))} />}
       {profileOpen && <ProfileModal profile={state.profile} onClose={() => setProfileOpen(false)} onSave={(profile) => { updateState((current) => ({ ...current, profile })); setProfileOpen(false); setNotice('Профиль обновлён') }} onExport={exportData} onImport={() => importRef.current?.click()} />}
       {ideaDraft && <IdeaWorkspace draft={ideaDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setIdeaDraft(null)} onSave={saveIdea} onPromote={startWinFromIdea} onAi={(idea) => requestAi('idea_review', idea as unknown as Record<string, unknown>, idea.competencyIds)} />}
+      {newIdeaFromNote && <NewIdeaModal idea={newIdeaFromNote} onClose={() => setNewIdeaFromNote(null)} onSave={(idea) => { saveIdea(idea, true); setNewIdeaFromNote(null) }} onPromote={(idea) => { setNewIdeaFromNote(null); startWinFromIdea(idea) }} />}
       {winDraft && <WinModal draft={winDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setWinDraft(null)} onSave={saveWin} onDelete={removeWin} onAi={(win) => requestAi('win_rewrite', win as unknown as Record<string, unknown>, win.competencyIds)} />}
       {openNote && <NoteOverlay note={openNote} busy={aiBusy} error={aiError} onClose={() => setOpenNote(null)} onConvert={convertNoteToIdea} onEdit={editNote} onAi={(note) => requestAi('idea_review', { title: note.title, details: note.body || note.rawText } as unknown as Record<string, unknown>, [])} />}
       <input ref={importRef} className={styles.hiddenInput} type="file" accept="application/json" onChange={importData} />
@@ -577,9 +579,13 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
   const dirty = text.trim() !== note.rawText.trim()
   async function runAi() { setGuidance(await onAi(note)) }
   function save() { if (text.trim()) onEdit(note.id, text) }
-  return <Modal title={note.title} subtitle={formatDate(note.createdAt.slice(0, 10))} onClose={onClose}>
-    <div className={styles.modalBody}>
-      <textarea className={styles.largeTextarea} value={text} onChange={(event) => setText(event.target.value)} aria-label="Текст мысли" autoFocus />
+  return <Modal title={note.title} subtitle="" onClose={onClose}>
+    <div className={styles.noteEditorWrap}>
+      <span className={styles.noteEditorDate}>{formatDate(note.createdAt.slice(0, 10))}</span>
+      <textarea className={styles.noteEditor} value={text} onChange={(event) => setText(event.target.value)} aria-label="Текст мысли" autoFocus />
+      <div className={styles.noteEditorSaveRow}>
+        <button className={styles.secondaryButton} type="button" disabled={!dirty || !text.trim()} onClick={save}>Сохранить</button>
+      </div>
       {error && <p className={styles.aiError}>{error}</p>}
       {guidance && <div className={styles.guidanceBanner}>
         <strong>{guidance.headline}</strong>
@@ -587,7 +593,6 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
         {guidance.nextStep && <p><strong>Следующий шаг.</strong> {guidance.nextStep}</p>}
       </div>}
       <div className={styles.modalActions}>
-        <button className={styles.secondaryButton} type="button" disabled={!dirty || !text.trim()} onClick={save}>Сохранить</button>
         <button className={styles.primaryButton} type="button" onClick={() => onConvert(note)}>Это идея!</button>
         <button className={styles.aiMiniButton} type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Думаем…' : '✦ Улучшить'}</button>
       </div>
@@ -712,12 +717,34 @@ function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart
 }
 
 function GrowthView({ profile, path, tab, onTab, guidance, busy, error, onAi, onCreateIdea }: { profile: Profile; path: ReturnType<typeof computeGrowthPath> & { currentLevel: LevelKey; nextLevel: LevelKey | null; strongSignals: Array<{ id: string; title: string; count: number }>; underdocumented: Array<{ id: string; title: string }>; directions: Array<{ competencyId: string; title: string; criterion: string }> }; tab: GrowthTab; onTab: (tab: GrowthTab) => void; guidance: AiResponse | null; busy: string; error: string; onAi: () => Promise<void>; onCreateIdea: (competency: Competency) => void }) {
-  return <div className={styles.pageStack}><section className={styles.pageIntro}><div><span className={styles.eyebrow}>Ожидания, а не оценка</span><h2>Рост</h2><p>Шкала помогает понимать текущие ожидания и следующий шаг. Она не превращается в обязательный чеклист.</p></div></section><div className={styles.segmentedControl}><button type="button" className={tab === 'path' ? styles.segmentActive : ''} onClick={() => onTab('path')}>Мой путь</button><button type="button" className={tab === 'scale' ? styles.segmentActive : ''} onClick={() => onTab('scale')}>Шкала</button></div>{tab === 'path' ? <><section className={styles.progressHero}><div><span className={styles.eyebrow}>Ваш контекст</span><h2>{profile.role}</h2><p>{profile.market || 'Рынок или команда не указаны'}</p></div><div className={styles.levelRoute}><div><small>Текущий уровень</small><strong>{levelLabels[profile.currentLevel]}</strong></div><span>→</span><div><small>{path.nextLevel ? 'Следующий уровень' : 'Следующий масштаб'}</small><strong>{path.nextLevel ? levelLabels[path.nextLevel] : 'Больше системного влияния'}</strong></div></div></section><div className={styles.progressGrid}><section className={styles.progressCard}><span className={styles.eyebrow}>Сильные сигналы</span><h3>Уже подтверждаются работой</h3>{path.strongSignals.length ? path.strongSignals.map((item) => <div className={styles.progressSignal} key={item.id}><strong>{item.title}</strong><span>{item.count} сигналов</span></div>) : <p className={styles.muted}>Добавьте идеи и wins — Эскада покажет устойчивые сигналы.</p>}</section><section className={styles.progressCard}><span className={styles.eyebrow}>Недостаточно подтверждено</span><h3>Не пробел, а зона наблюдения</h3>{path.underdocumented.map((item) => <div className={styles.progressSignal} key={item.id}><strong>{item.title}</strong><span>мало записей</span></div>)}</section></div><section className={styles.panel}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Следующий фокус</span><h3>1–3 направления</h3></div><button className={styles.aiMiniButton} type="button" disabled={busy === 'growth_guidance'} onClick={() => void onAi()}>{busy === 'growth_guidance' ? 'Эскада думает…' : '✦ Что развивать дальше?'}</button></div><div className={styles.directionGrid}>{path.directions.map((item) => <article key={item.competencyId}><strong>{item.title}</strong><p>{item.criterion}</p><button type="button" className={styles.textButton} onClick={() => { const competency = competencyById(item.competencyId); if (competency) onCreateIdea(competency) }}>Создать идею</button></article>)}</div>{error && <p className={styles.aiError}>{error}</p>}</section>{guidance && <AiGuidancePanel guidance={guidance} />}</> : <ScaleReference profile={profile} onCreateIdea={onCreateIdea} />}</div>
+  return <div className={styles.pageStack}><section className={styles.pageIntro}><div><span className={styles.eyebrow}>Ожидания, а не оценка</span><h2>Рост</h2><p>Шкала помогает понимать текущие ожидания и следующий шаг. Она не превращается в обязательный чеклист.</p></div></section><div className={styles.segmentedControl}><button type="button" className={tab === 'path' ? styles.segmentActive : ''} onClick={() => onTab('path')}>Мой путь</button><button type="button" className={tab === 'scale' ? styles.segmentActive : ''} onClick={() => onTab('scale')}>Шкала</button></div>{tab === 'path' ? <><section className={styles.progressHero}><div><span className={styles.eyebrow}>Ваш контекст</span><h2>{levelLabels[profile.currentLevel]}</h2><p>{profile.market || 'Рынок или команда не указаны'}</p></div><div className={styles.levelRoute}><div><small>Текущий уровень</small><strong>{levelLabels[profile.currentLevel]}</strong></div><span>→</span><div><small>{path.nextLevel ? 'Следующий уровень' : 'Следующий масштаб'}</small><strong>{path.nextLevel ? levelLabels[path.nextLevel] : 'Больше системного влияния'}</strong></div></div></section><div className={styles.progressGrid}><section className={styles.progressCard}><span className={styles.eyebrow}>Сильные сигналы</span><h3>Уже подтверждаются работой</h3>{path.strongSignals.length ? path.strongSignals.map((item) => <div className={styles.progressSignal} key={item.id}><strong>{item.title}</strong><span>{item.count} сигналов</span></div>) : <p className={styles.muted}>Добавьте идеи и wins — Эскада покажет устойчивые сигналы.</p>}</section><section className={styles.progressCard}><span className={styles.eyebrow}>Недостаточно подтверждено</span><h3>Не пробел, а зона наблюдения</h3>{path.underdocumented.map((item) => <div className={styles.progressSignal} key={item.id}><strong>{item.title}</strong><span>мало записей</span></div>)}</section></div><section className={styles.panel}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Следующий фокус</span><h3>1–3 направления</h3></div><button className={styles.aiMiniButton} type="button" disabled={busy === 'growth_guidance'} onClick={() => void onAi()}>{busy === 'growth_guidance' ? 'Эскада думает…' : '✦ Что развивать дальше?'}</button></div><div className={styles.directionGrid}>{path.directions.map((item) => <article key={item.competencyId}><strong>{item.title}</strong><p>{item.criterion}</p><button type="button" className={styles.textButton} onClick={() => { const competency = competencyById(item.competencyId); if (competency) onCreateIdea(competency) }}>Создать идею</button></article>)}</div>{error && <p className={styles.aiError}>{error}</p>}</section>{guidance && <AiGuidancePanel guidance={guidance} />}</> : <ScaleReference profile={profile} onCreateIdea={onCreateIdea} />}</div>
 }
 
 function ScaleReference({ profile, onCreateIdea }: { profile: Profile; onCreateIdea: (competency: Competency) => void }) {
   const target = nextLevel(profile.currentLevel)
   return <section className={styles.competencyGrid}>{competencies.map((competency, index) => <article className={styles.competencyCard} key={competency.id}><div className={styles.competencyNumber}>{String(index + 1).padStart(2, '0')}</div><div><span className={styles.domainBadge}>{competency.shortTitle}</span><h3>{competency.title}</h3><p>{competency.summary}</p><div className={styles.expectationColumns}><section><small>Ожидания сейчас · {levelLabels[profile.currentLevel]}</small><ul>{competency.levels[profile.currentLevel].map((criterion) => <li key={criterion.id}>{criterion.text}</li>)}</ul></section><section><small>{target ? `Следующий уровень · ${levelLabels[target]}` : 'Усиление влияния'}</small><ul>{competency.levels[target ?? profile.currentLevel].map((criterion) => <li key={criterion.id}>{criterion.text}</li>)}</ul></section></div><button className={styles.textButton} type="button" onClick={() => onCreateIdea(competency)}>Создать growth idea</button></div></article>)}</section>
+}
+
+function NewIdeaModal({ idea, onClose, onSave, onPromote }: {
+  idea: Idea
+  onClose: () => void
+  onSave: (idea: Idea) => void
+  onPromote: (idea: Idea) => void
+}) {
+  const [draft, setDraft] = useState(idea)
+  return <Modal title="Новая идея" subtitle="Название и смысл — остальное можно добавить позже, открыв идею из «Идеи»." onClose={onClose}>
+    <form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); if (draft.title.trim()) onSave(draft) }}>
+      <label className={styles.field}>Название идеи<input autoFocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label>
+      <label className={styles.field}>Смысл<textarea value={draft.details} onChange={(event) => setDraft({ ...draft, details: event.target.value })} placeholder="В чём идея и почему она может быть полезна?" /></label>
+      <div className={styles.modalActions}>
+        <button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button>
+        <button className={styles.primaryButton} type="submit">Сохранить идею</button>
+      </div>
+      <div className={styles.newIdeaWinRow}>
+        <button type="button" className={styles.primaryButton} disabled={!draft.title.trim()} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Win!</button>
+      </div>
+    </form>
+  </Modal>
 }
 
 function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, onPromote, onAi }: { draft: Idea; profile: Profile; busy: string; error: string; onClose: () => void; onSave: (idea: Idea, close?: boolean) => Idea; onPromote: (idea: Idea) => void; onAi: (idea: Idea) => Promise<AiResponse> }) {
@@ -801,7 +828,7 @@ function AiGuidancePanel({ guidance, compact = false, onSaveNextStep, onApplyRew
 
 function ProfileModal({ profile: initial, onClose, onSave, onExport, onImport }: { profile: Profile; onClose: () => void; onSave: (profile: Profile) => void; onExport: () => void; onImport: () => void }) {
   const [profile, setProfile] = useState(initial)
-  return <Modal title="Профиль" subtitle="Название должности и уровень задаются отдельно: свободный title не определяет ожидания шкалы." onClose={onClose}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); onSave(profile) }}><label className={styles.field}>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label className={styles.field}>Текущая должность<input value={profile.role} onChange={(event) => setProfile({ ...profile, role: event.target.value })} required /></label><label className={styles.field}>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><div className={styles.optionalBlock}><div><strong>Локальные данные</strong><span>Экспортируйте резервную копию или импортируйте её на другом устройстве.</span></div><div className={styles.buttonRow}><button type="button" className={styles.secondaryButton} onClick={onExport}>Экспорт</button><button type="button" className={styles.secondaryButton} onClick={onImport}>Импорт</button></div></div><div className={styles.modalActions}><button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить</button></div></form></Modal>
+  return <Modal title="Профиль" subtitle="Название должности и уровень задаются отдельно: свободный title не определяет ожидания шкалы." onClose={onClose}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); onSave(profile) }}><label className={styles.field}>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label className={styles.field}>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><div className={styles.optionalBlock}><div><strong>Локальные данные</strong><span>Экспортируйте резервную копию или импортируйте её на другом устройстве.</span></div><div className={styles.buttonRow}><button type="button" className={styles.secondaryButton} onClick={onExport}>Экспорт</button><button type="button" className={styles.secondaryButton} onClick={onImport}>Импорт</button></div></div><div className={styles.modalActions}><button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить</button></div></form></Modal>
 }
 
 function Modal({ title, subtitle, onClose, children }: { title: string; subtitle: string; onClose: () => void; children: ReactNode }) {
@@ -811,7 +838,7 @@ function Modal({ title, subtitle, onClose, children }: { title: string; subtitle
 
 function Onboarding({ initial, onComplete, onDemo }: { initial: Profile; onComplete: (profile: Profile) => void; onDemo: () => void }) {
   const [profile, setProfile] = useState(initial)
-  return <div className={styles.onboardingBackdrop}><section className={styles.onboarding}><div className={styles.onboardingVisual}><span className={styles.brandMark}><LadderLogo /></span><p>Эскада</p><h1>Записал.<br />Развил.<br />Подтвердил.</h1><div className={styles.onboardingFlow}><span>Мысль</span><i>→</i><span>Win</span><i>→</i><span>Рост</span></div></div><form onSubmit={(event) => { event.preventDefault(); onComplete(profile) }}><span className={styles.eyebrow}>Настройка за минуту</span><h2>Добавьте рабочий контекст</h2><p>Должность и уровень разделены. Уровень определяет ожидания и рекомендации Эскады.</p><label>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label>Текущая должность<input value={profile.role} onChange={(event) => setProfile({ ...profile, role: event.target.value })} required /></label><label>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><button className={styles.primaryButton} type="submit">Начать работу</button><button className={styles.textButton} type="button" onClick={onDemo}>Посмотреть с демо-данными</button></form></section></div>
+  return <div className={styles.onboardingBackdrop}><section className={styles.onboarding}><div className={styles.onboardingVisual}><span className={styles.brandMark}><LadderLogo /></span><p>Эскада</p><h1>Записал.<br />Развил.<br />Подтвердил.</h1><div className={styles.onboardingFlow}><span>Мысль</span><i>→</i><span>Win</span><i>→</i><span>Рост</span></div></div><form onSubmit={(event) => { event.preventDefault(); onComplete(profile) }}><span className={styles.eyebrow}>Настройка за минуту</span><h2>Добавьте рабочий контекст</h2><p>Должность и уровень разделены. Уровень определяет ожидания и рекомендации Эскады.</p><label>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><button className={styles.primaryButton} type="submit">Начать работу</button><button className={styles.textButton} type="button" onClick={onDemo}>Посмотреть с демо-данными</button></form></section></div>
 }
 
 function EmptyState({ title, text, action, onAction }: { title: string; text: string; action: string; onAction: () => void }) {

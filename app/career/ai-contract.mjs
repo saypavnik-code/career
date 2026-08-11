@@ -101,16 +101,17 @@ export function retrieveCriteria(payload) {
 
 function reportDraftInstruction(reportType) {
   const label = String(reportType ?? '').toLowerCase()
+  const plainTextRule = 'Output must be PLAIN TEXT, never Markdown: no #, no **bold**, no Markdown "- " list syntax. Use uppercase section headers on their own line, "\u2022 " for bullet points, and "Label: value" instead of bold labels.'
   if (label.includes('недел')) {
-    return 'Create a short Russian Markdown weekly pulse from only the selected wins and ideas: a few bullet lines per win, one line per idea in progress, one next-week focus. No headline ceremony, no invented metrics or impact.'
+    return `Create a short Russian weekly pulse from only the selected wins and ideas: a few bullet lines per win, one line per idea in progress, one next-week focus. No headline ceremony, no invented metrics or impact. ${plainTextRule}`
   }
   if (label.includes('performance')) {
-    return 'Create a thorough Russian Markdown performance-review draft covering the FULL period: every selected win in full detail, ideas in progress, and a competency-signal summary derived only from the competencyIds already present on the supplied wins/ideas (counts only, never invented scores or percentages). Do not invent metrics, impact, recognition, or causal claims.'
+    return `Create a thorough Russian performance-review draft covering the FULL period: every selected win in full detail, ideas in progress, and a competency-signal summary derived only from the competencyIds already present on the supplied wins/ideas (counts only, never invented scores or percentages). Do not invent metrics, impact, recognition, or causal claims. ${plainTextRule}`
   }
   if (label.includes('promotion')) {
-    return 'Create a Russian Markdown promotion case that presents the employee in the strongest honest light supported by the data: lead with the strongest competency signals mapped to the next-level criteria supplied, then the key results with full detail, then initiatives showing scope. Never invent a metric, stakeholder confirmation, or causal claim that is not already in the supplied facts — end with an explicit "не забудьте" checklist of what the user must still verify (numbers, confirmations) before submitting.'
+    return `Create a Russian promotion case that presents the employee in the strongest honest light supported by the data: lead with the strongest competency signals mapped to the next-level criteria supplied, then the key results with full detail, then initiatives showing scope. Never invent a metric, stakeholder confirmation, or causal claim that is not already in the supplied facts — end with an explicit "не забудьте" checklist of what the user must still verify (numbers, confirmations) before submitting. ${plainTextRule}`
   }
-  return 'Create a concise Russian Markdown monthly draft from only the selected wins and ideas. Do not invent metrics, impact, recognition, or causal claims.'
+  return `Create a concise Russian monthly draft from only the selected wins and ideas. Do not invent metrics, impact, recognition, or causal claims. ${plainTextRule}`
 }
 
 function actionInstruction(action, artifact) {

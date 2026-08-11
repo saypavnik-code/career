@@ -132,7 +132,7 @@ test('performance review draft includes a competency-signal summary from real da
     },
   })
   assert.match(result.draftMarkdown, /Performance review/)
-  assert.match(result.draftMarkdown, /Сигналы по компетенциям/)
+  assert.match(result.draftMarkdown, /Сигналы по компетенциям/i)
   assert.match(result.draftMarkdown, /Контент-маркетинг/)
   assert.doesNotMatch(result.draftMarkdown, /%/)
 })
@@ -152,8 +152,8 @@ test('promotion case draft leads with signals and ends with a verification check
     },
   })
   assert.match(result.draftMarkdown, /Promotion case/)
-  assert.match(result.draftMarkdown, /Сильнейшие сигналы/)
-  assert.match(result.draftMarkdown, /Не забудьте перед отправкой/)
+  assert.match(result.draftMarkdown, /Сильнейшие сигналы/i)
+  assert.match(result.draftMarkdown, /Не забудьте перед отправкой/i)
 })
 
 
@@ -399,4 +399,37 @@ test('QA fix: normalizeWin initializes sourceContext for wins migrated from pre-
   }
   const migrated = migrateState(legacyV4State)
   assert.equal(migrated.wins[0].sourceContext, '')
+})
+
+
+test('generated report drafts contain no Markdown syntax (plain text only)', () => {
+  const markdownPattern = /(^|\n)#{1,6}\s|\*\*[^*]+\*\*|(^|\n)-\s/
+
+  const weekly = buildLocalGuidance('report_draft', {
+    profile: { name: 'Мария', role: 'Digital Marketing Manager', market: 'Brazil', currentLevel: 'specialist' },
+    competencyIds: [],
+    artifact: { reportType: 'Недельный отчёт', periodStart: '2026-08-03', periodEnd: '2026-08-09', wins: [{ title: 'X', impact: 'Y' }], ideas: [{ title: 'Z', nextStep: 'W' }] },
+  })
+  assert.doesNotMatch(weekly.draftMarkdown, markdownPattern)
+
+  const monthly = buildLocalGuidance('report_draft', {
+    profile: { name: 'Мария', role: 'Digital Marketing Manager', market: 'Brazil', currentLevel: 'senior' },
+    competencyIds: [],
+    artifact: { reportType: 'Ежемесячный отчёт', periodStart: '2026-07-01', periodEnd: '2026-07-31', wins: [{ title: 'X', impact: 'Y', evidence: 'Z' }], ideas: [] },
+  })
+  assert.doesNotMatch(monthly.draftMarkdown, markdownPattern)
+
+  const performance = buildLocalGuidance('report_draft', {
+    profile: { name: 'Мария', role: 'Digital Marketing Manager', market: 'Brazil', currentLevel: 'senior' },
+    competencyIds: ['content-marketing'],
+    artifact: { reportType: 'Performance review', periodStart: '2026-01-01', periodEnd: '2026-06-30', wins: [{ title: 'X', impact: 'Y', evidence: 'Z', competencyIds: ['content-marketing'], competencyTitle: 'Контент-маркетинг' }], ideas: [] },
+  })
+  assert.doesNotMatch(performance.draftMarkdown, markdownPattern)
+
+  const promotion = buildLocalGuidance('report_draft', {
+    profile: { name: 'Мария', role: 'Digital Marketing Manager', market: 'Brazil', currentLevel: 'senior' },
+    competencyIds: ['results-proactivity'],
+    artifact: { reportType: 'Promotion case', periodStart: '2026-01-01', periodEnd: '2026-06-30', wins: [{ title: 'X', impact: 'Y', evidence: 'Z', competencyIds: ['results-proactivity'], competencyTitle: 'Ориентация на результат' }], ideas: [] },
+  })
+  assert.doesNotMatch(promotion.draftMarkdown, markdownPattern)
 })
