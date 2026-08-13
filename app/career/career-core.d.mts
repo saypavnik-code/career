@@ -4,6 +4,7 @@ export const LEGACY_STORAGE_KEY: string
 export const SCHEMA_VERSION: number
 export function createId(prefix?: string): string
 export function todayIso(now?: Date): string
+export function computeReportingCycle(profile?: { reportingRhythm?: string; cycleEnd?: string }, now?: Date): { rhythm: 'monthly' | 'quarterly' | 'half-year'; periodStart: string; periodEnd: string; daysRemaining: number }
 export function normalizeText(value?: string): string
 export function suggestCompetencyIds(text: string, competencies: unknown[], keywordMap: Record<string, string[]>, limit?: number): string[]
 export function inferLevelSignal(text: string, fallback?: string): { level: 'specialist' | 'senior' | 'lead'; reason: string }

@@ -1096,3 +1096,172 @@
   .modalActions .dangerButton { grid-column: 1; }
   .sourceIdeaPill { border-radius: 12px; }
 }
+
+/* escada-cycle-archive-responsive-v25: reporting cycle + reversible archive + responsive consistency */
+.reportingCycleCard,
+.profileCycleBox,
+.archiveSection {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(20px) saturate(1.05);
+  -webkit-backdrop-filter: blur(20px) saturate(1.05);
+  box-shadow: 0 14px 36px var(--line);
+}
+
+.reportingCycleCard {
+  border-radius: 22px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+}
+.reportingCycleCard > div:first-child { min-width: 0; display: grid; gap: 6px; }
+.reportingCycleCard strong { font-size: 15px; overflow-wrap: anywhere; }
+.reportingCycleCard p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.reportingCycleActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
+.reportingCycleActions > button { min-height: 44px; }
+
+.profileCycleBox {
+  border-radius: 18px;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+.profileCycleBox > div:first-child { display: grid; gap: 5px; }
+.profileCycleBox > div:first-child strong { font-size: 13px; }
+.profileCycleBox > div:first-child span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.profileCycleBox .formGrid { align-items: end; }
+
+.kanbanCard .cardActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+.kanbanArchiveButton {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 8px 10px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.kanbanArchiveButton:hover { color: var(--accent-dark); border-color: var(--accent); }
+
+.archiveSection {
+  border-radius: 22px;
+  overflow: clip;
+}
+.archiveSection > summary {
+  min-height: 54px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  font-weight: 850;
+  list-style: none;
+}
+.archiveSection > summary::-webkit-details-marker { display: none; }
+.archiveSection > summary strong {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 11px;
+}
+.archiveGrid {
+  border-top: 1px solid var(--line);
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.archiveCard {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.archiveOpenButton {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 2px;
+  text-align: left;
+  display: grid;
+  gap: 5px;
+}
+.archiveOpenButton strong, .archiveOpenButton span { overflow-wrap: anywhere; }
+.archiveOpenButton strong { font-size: 13px; }
+.archiveOpenButton span { color: var(--muted); font-size: 11px; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.archiveCard > .secondaryButton { justify-self: start; }
+
+.archiveAction {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 10px 13px;
+  font-weight: 800;
+}
+.archiveAction:hover { color: var(--accent-dark); border-color: var(--accent); }
+.terminalIdeaHint { align-self: center; color: var(--muted); font-size: 11px; font-weight: 750; line-height: 1.4; }
+
+/* Defensive text/layout rules shared by every major responsive surface. */
+.sectionHeader, .pageIntro, .reportActionRow, .reportEditorActions, .workspaceFooter { min-width: 0; }
+.sectionHeader > div, .pageIntro > div, .reportActionRow > p { min-width: 0; }
+.sectionHeader :is(h2, h3, p), .pageIntro :is(h2, p), .reportActionRow p { overflow-wrap: anywhere; }
+.reportWin > div, .savedReportCard, .competencyCard, .progressCard, .directionGrid article { min-width: 0; }
+
+@media (max-width: 1100px) {
+  .reportingCycleCard { align-items: flex-start; }
+  .reportingCycleActions { max-width: 280px; }
+}
+
+@media (max-width: 780px) {
+  .reportingCycleCard { flex-direction: column; align-items: stretch; padding: 16px; border-radius: 18px; }
+  .reportingCycleActions { width: 100%; max-width: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reportingCycleActions > button { width: 100%; }
+  .archiveGrid { grid-template-columns: 1fr; padding: 10px; }
+  .archiveCard { padding: 12px; }
+  .archiveCard > .secondaryButton { width: 100%; justify-self: stretch; }
+  .workspaceFooter > div { width: 100%; }
+  .workspaceFooter > div:last-child { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-left: 0; }
+  .workspaceFooter > div:last-child > button { width: 100%; min-height: 46px; }
+  .archiveAction { width: 100%; }
+}
+
+@media (max-width: 520px) {
+  .reportingCycleActions { grid-template-columns: 1fr; }
+  .workspaceFooter > div:last-child { grid-template-columns: 1fr; }
+  .kanbanCard .cardActions { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
+@media (max-width: 380px) {
+  .workspace { padding-inline: 10px; }
+  .reportTypeGrid { grid-template-columns: 1fr; }
+  .mobileNav { left: 5px; right: 5px; padding-inline: 4px; }
+  .mobileNav small { font-size: 7px; }
+}
+
+@media (max-height: 660px) and (min-width: 781px) {
+  .modalBackdrop { padding: 10px; }
+  .compactCard, .modalWide, .ideaDialogCard { max-height: calc(100dvh - 20px); }
+  .modalHeader, .workspaceHeader { padding-block: 12px; }
+  .compactCardBody { padding-block: 14px; }
+}

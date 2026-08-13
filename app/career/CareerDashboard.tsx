@@ -17,6 +17,7 @@ import {
   STORAGE_KEY,
   captureToWinDraft,
   computeGrowthPath,
+  computeReportingCycle,
   createDefaultState,
   createId,
   createNote,
@@ -197,6 +198,14 @@ const reportTypeLabels: Record<ReportType, string> = {
   promotion: 'Promotion case',
 }
 
+const visibleReportTypes: ReportType[] = ['weekly', 'monthly', 'performance', 'promotion']
+
+const reportingRhythmLabels: Record<Profile['reportingRhythm'], string> = {
+  monthly: 'Ежемесячно',
+  quarterly: 'Ежеквартально',
+  'half-year': 'Раз в полгода',
+}
+
 function asState(value: Record<string, unknown>) {
   return value as unknown as CareerState
 }
@@ -286,7 +295,11 @@ export default function CareerDashboard() {
   useEffect(() => {
     const current = safeJsonParse(window.localStorage.getItem(STORAGE_KEY))
     const previous = PREVIOUS_STORAGE_KEYS.map((key) => safeJsonParse(window.localStorage.getItem(key))).find(Boolean) ?? null
-    setState(asState(migrateState(current ?? previous, createDefaultState())))
+    const loaded = asState(migrateState(current ?? previous, createDefaultState()))
+    const cycle = computeReportingCycle(loaded.profile, new Date()) as { periodStart: string; periodEnd: string }
+    setState(loaded)
+    setPeriodStart(cycle.periodStart)
+    setPeriodEnd(cycle.periodEnd)
     setHydrated(true)
   }, [])
 
@@ -302,6 +315,7 @@ export default function CareerDashboard() {
 
   const activeIdeas = useMemo(() => state.ideas.filter((item) => item.status !== 'won' && item.status !== 'archived'), [state.ideas])
   const winsInPeriod = useMemo(() => selectWinsForPeriod(state.wins, periodStart, periodEnd) as Win[], [state.wins, periodStart, periodEnd])
+  const reportingCycle = useMemo(() => computeReportingCycle(state.profile, new Date()) as { rhythm: Profile['reportingRhythm']; periodStart: string; periodEnd: string; daysRemaining: number }, [state.profile])
   const growthPath = useMemo(() => computeGrowthPath(state as unknown as Record<string, unknown>, competencies) as {
     currentLevel: LevelKey
     nextLevel: LevelKey | null
@@ -318,13 +332,14 @@ export default function CareerDashboard() {
   async function requestAi(action: AiAction, artifact: Record<string, unknown>, competencyIds: string[] = []) {
     setAiBusy(action)
     setAiError('')
-    const payload = { profile: state.profile as unknown as Record<string, unknown>, artifact, competencyIds }
+    const aiProfile = { name: state.profile.name, market: state.profile.market, currentLevel: state.profile.currentLevel }
+    const payload = { profile: aiProfile as unknown as Record<string, unknown>, artifact, competencyIds }
     try {
       if (!ESCADA_AI_ENDPOINT) return buildLocalGuidance(action, payload) as unknown as AiResponse
       const response = await fetch(ESCADA_AI_ENDPOINT, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action, profile: state.profile, artifact, competencyIds }),
+        body: JSON.stringify({ action, profile: aiProfile, artifact, competencyIds }),
       })
       const data = await response.json() as AiResponse & { message?: string }
       if (!response.ok) throw new Error(data.message || 'Внешняя подсказка вернула ошибку')
@@ -402,6 +417,24 @@ export default function CareerDashboard() {
     }))
   }
 
+  function archiveIdea(ideaId: string) {
+    updateState((current) => ({
+      ...current,
+      ideas: current.ideas.map((item) => item.id === ideaId ? { ...item, status: 'archived', updatedAt: new Date().toISOString() } : item),
+    }))
+    setIdeaDraft((current) => current?.id === ideaId ? null : current)
+    setNotice('Идея перемещена в архив')
+  }
+
+  function restoreIdea(ideaId: string) {
+    updateState((current) => ({
+      ...current,
+      ideas: current.ideas.map((item) => item.id === ideaId ? { ...item, status: 'concept', updatedAt: new Date().toISOString() } : item),
+    }))
+    setIdeaDraft((current) => current?.id === ideaId ? null : current)
+    setNotice('Идея возвращена в «Задумки»')
+  }
+
   function startWinFromIdea(idea: Idea) {
     const persisted = saveIdea(idea, false)
     const promoted = promoteIdeaToWin(persisted as unknown as Record<string, unknown>, { date: todayIso() }) as unknown as Win
@@ -463,6 +496,16 @@ export default function CareerDashboard() {
     setNotice('Сохранённая версия открыта')
   }
 
+  function useProfileReportingPeriod() {
+    setPeriodStart(reportingCycle.periodStart)
+    setPeriodEnd(reportingCycle.periodEnd)
+    setSelectedWinIds([])
+    setSelectedIdeaIds([])
+    setReportText('')
+    setReportGuidance(null)
+    setNotice('Период установлен по отчётному циклу профиля')
+  }
+
   async function generateReport() {
     const wins = state.wins.filter((item) => selectedWinIds.includes(item.id))
     const ideas = state.ideas.filter((item) => selectedIdeaIds.includes(item.id))
@@ -520,9 +563,9 @@ export default function CareerDashboard() {
         </header>
 
         {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
-        {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
+        {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onArchive={archiveIdea} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
         {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
-        {view === 'reports' && <ReportsView wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} />}
+        {view === 'reports' && <ReportsView profile={state.profile} cycle={reportingCycle} wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onUseProfilePeriod={useProfileReportingPeriod} onOpenProfile={() => setProfileOpen(true)} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} />}
       </section>
 
@@ -530,7 +573,7 @@ export default function CareerDashboard() {
 
       {!state.onboardingComplete && <Onboarding initial={state.profile} onComplete={(profile) => updateState((current) => ({ ...current, onboardingComplete: true, profile }))} onDemo={() => setState(asState(demoState()))} />}
       {profileOpen && <ProfileModal profile={state.profile} onClose={() => setProfileOpen(false)} onSave={(profile) => { updateState((current) => ({ ...current, profile })); setProfileOpen(false); setNotice('Профиль обновлён') }} onExport={exportData} onImport={() => importRef.current?.click()} />}
-      {ideaDraft && <IdeaWorkspace draft={ideaDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setIdeaDraft(null)} onSave={saveIdea} onPromote={startWinFromIdea} onAi={(idea) => requestAi('idea_review', idea as unknown as Record<string, unknown>, idea.competencyIds)} />}
+      {ideaDraft && <IdeaWorkspace draft={ideaDraft} profile={state.profile} busy={aiBusy} error={aiError} canArchive={state.ideas.some((item) => item.id === ideaDraft.id)} onClose={() => setIdeaDraft(null)} onSave={saveIdea} onPromote={startWinFromIdea} onArchive={archiveIdea} onRestore={restoreIdea} onAi={(idea) => requestAi('idea_review', idea as unknown as Record<string, unknown>, idea.competencyIds)} />}
       {newIdeaFromNote && <NewIdeaModal idea={newIdeaFromNote} onClose={() => setNewIdeaFromNote(null)} onSave={(idea) => { saveIdea(idea, true); setNewIdeaFromNote(null) }} onPromote={(idea) => { setNewIdeaFromNote(null); startWinFromIdea(idea) }} />}
       {winDraft && <WinModal draft={winDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setWinDraft(null)} onSave={saveWin} onDelete={removeWin} onAi={(win) => requestAi('win_rewrite', win as unknown as Record<string, unknown>, win.competencyIds)} />}
       {openNote && <NoteOverlay note={openNote} busy={aiBusy} error={aiError} onClose={() => setOpenNote(null)} onConvert={convertNoteToIdea} onEdit={editNote} onAi={(note) => requestAi('idea_review', { title: note.title, details: note.body || note.rawText } as unknown as Record<string, unknown>, [])} />}
@@ -565,7 +608,7 @@ function TodayView({ quickText, onQuickText, onSubmit, notes, onOpenNote }: {
     {notes.length > 0 && (
       <section className={styles.pinBoard}>
         {notes.map((note) => (
-          <article className={styles.noteCard} key={note.id} onClick={() => onOpenNote(note)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpenNote(note) }}>
+          <article className={styles.noteCard} key={note.id} onClick={() => onOpenNote(note)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenNote(note) } }}>
             <h4>{note.title}</h4>
             <span className={styles.noteCardDate}>{noteRelativeDate(note.createdAt)}</span>
           </article>
@@ -610,16 +653,19 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
   </Modal>
 }
 
-function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onQuickWin }: {
+function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onArchive, onRestore, onQuickWin }: {
   ideas: Idea[]
   wins: Win[]
   onNew: () => void
   onOpen: (idea: Idea) => void
   onStatusChange: (ideaId: string, status: ActiveIdeaStatus) => void
+  onArchive: (ideaId: string) => void
+  onRestore: (ideaId: string) => void
   onQuickWin: (idea: Idea) => void
 }) {
   const [dragIdeaId, setDragIdeaId] = useState<string | null>(null)
   const kanbanIdeas = ideas.filter((idea) => idea.status !== 'won' && idea.status !== 'archived')
+  const archivedIdeas = ideas.filter((idea) => idea.status === 'archived')
 
   function handleDrop(event: React.DragEvent, status: ActiveIdeaStatus) {
     event.preventDefault()
@@ -645,7 +691,7 @@ function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onQuickWin }: {
                   role="button"
                   tabIndex={0}
                   onClick={() => onOpen(idea)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') onOpen(idea) }}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(idea) } }}
                   onDragStart={(event) => { event.dataTransfer.setData('text/escada-idea-id', idea.id); setDragIdeaId(idea.id) }}
                   onDragEnd={() => setDragIdeaId(null)}
                 >
@@ -666,6 +712,7 @@ function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onQuickWin }: {
                     >
                       {KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
                     </select>
+                    <button type="button" className={styles.kanbanArchiveButton} onClick={(event) => { event.stopPropagation(); onArchive(idea.id) }} aria-label={`Архивировать идею «${idea.title}»`}>Архив</button>
                   </div>
                 </article>
               ))}
@@ -674,8 +721,15 @@ function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onQuickWin }: {
         })}
       </section>
     ) : (
-      <EmptyState title="Идей пока нет" text="Запишите мысль на экране «Сегодня» или создайте карточку сразу." action="Создать идею" onAction={onNew} />
+      <EmptyState title={archivedIdeas.length ? 'Активных идей пока нет' : 'Идей пока нет'} text="Запишите мысль на экране «Сегодня» или создайте карточку сразу." action="Создать идею" onAction={onNew} />
     )}
+    {archivedIdeas.length > 0 && <details className={styles.archiveSection}>
+      <summary><span>Архив</span><strong>{archivedIdeas.length}</strong></summary>
+      <div className={styles.archiveGrid}>{archivedIdeas.map((idea) => <article className={styles.archiveCard} key={idea.id}>
+        <button type="button" className={styles.archiveOpenButton} onClick={() => onOpen(idea)}><strong>{idea.title}</strong><span>{idea.details || 'Без описания'}</span></button>
+        <button type="button" className={styles.secondaryButton} onClick={() => onRestore(idea.id)}>Вернуть в задумки</button>
+      </article>)}</div>
+    </details>}
   </div>
 }
 
@@ -704,7 +758,9 @@ function WinsView({ wins, ideas, onNew, onOpen, onDelete, onReports }: { wins: W
   </div>
 }
 
-function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart, periodEnd, reportType, reportText, reports, guidance, busy, error, onPeriodStart, onPeriodEnd, onReportType, onToggleWin, onToggleIdea, onSelectAll, onGenerate, onReview, onReportText, onSave, onOpenReport }: {
+function ReportsView({ profile, cycle, wins, ideas, selectedWinIds, selectedIdeaIds, periodStart, periodEnd, reportType, reportText, reports, guidance, busy, error, onPeriodStart, onPeriodEnd, onReportType, onToggleWin, onToggleIdea, onSelectAll, onGenerate, onReview, onReportText, onSave, onOpenReport, onUseProfilePeriod, onOpenProfile }: {
+  profile: Profile
+  cycle: { rhythm: Profile['reportingRhythm']; periodStart: string; periodEnd: string; daysRemaining: number }
   wins: Win[]
   ideas: Idea[]
   selectedWinIds: string[]
@@ -728,13 +784,25 @@ function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart
   onReportText: (value: string) => void
   onSave: () => void
   onOpenReport: (report: Report) => void
+  onUseProfilePeriod: () => void
+  onOpenProfile: () => void
 }) {
+  const cycleStatus = cycle.daysRemaining < 0
+    ? `Цикл завершился ${Math.abs(cycle.daysRemaining)} дн. назад — обновите дату в профиле.`
+    : cycle.daysRemaining === 0
+      ? 'Текущий цикл заканчивается сегодня.'
+      : `До конца текущего цикла ${cycle.daysRemaining} дн.`
   return <div className={styles.pageStack}>
     <section className={styles.pageIntro}>
       <div><span className={styles.eyebrow}>Вы контролируете содержание</span><h2>Соберите отчёт</h2><p>Выберите период, тип документа и только те достижения, которые должны войти в черновик.</p></div>
     </section>
 
-    <section className={styles.reportTypeGrid}>{(Object.entries(reportTypeLabels) as Array<[ReportType, string]>).map(([value, label]) => <button type="button" key={value} className={reportType === value ? styles.reportTypeActive : styles.reportTypeCard} onClick={() => onReportType(value)}><strong>{label}</strong></button>)}</section>
+    <section className={styles.reportingCycleCard}>
+      <div><span className={styles.eyebrow}>Отчётный цикл</span><strong>{reportingRhythmLabels[cycle.rhythm]} · до {formatDate(cycle.periodEnd)}</strong><p>{cycleStatus}</p></div>
+      <div className={styles.reportingCycleActions}><button className={styles.secondaryButton} type="button" onClick={onOpenProfile}>Настроить</button><button className={styles.primaryButton} type="button" onClick={onUseProfilePeriod}>Взять период цикла</button></div>
+    </section>
+
+    <section className={styles.reportTypeGrid}>{visibleReportTypes.map((value) => <button type="button" key={value} className={reportType === value ? styles.reportTypeActive : styles.reportTypeCard} onClick={() => onReportType(value)}><strong>{reportTypeLabels[value]}</strong></button>)}</section>
 
     <section className={`${styles.panel} ${styles.reportBuilder}`}>
       <div className={styles.dateGrid}><label>С<input type="date" value={periodStart} onChange={(event) => onPeriodStart(event.target.value)} /></label><label>По<input type="date" value={periodEnd} onChange={(event) => onPeriodEnd(event.target.value)} /></label></div>
@@ -787,12 +855,13 @@ function NewIdeaModal({ idea, onClose, onSave, onPromote }: {
   </Modal>
 }
 
-function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, onPromote, onAi }: { draft: Idea; profile: Profile; busy: string; error: string; onClose: () => void; onSave: (idea: Idea, close?: boolean) => Idea; onPromote: (idea: Idea) => void; onAi: (idea: Idea) => Promise<AiResponse> }) {
+function IdeaWorkspace({ draft: initial, profile, busy, error, canArchive, onClose, onSave, onPromote, onArchive, onRestore, onAi }: { draft: Idea; profile: Profile; busy: string; error: string; canArchive: boolean; onClose: () => void; onSave: (idea: Idea, close?: boolean) => Idea; onPromote: (idea: Idea) => void; onArchive: (ideaId: string) => void; onRestore: (ideaId: string) => void; onAi: (idea: Idea) => Promise<AiResponse> }) {
   const [draft, setDraft] = useState(initial)
   const [noteText, setNoteText] = useState('')
   const [evidenceText, setEvidenceText] = useState('')
   const [guidance, setGuidance] = useState<AiResponse | null>(null)
   useDialogBehavior(onClose)
+  const isTerminal = draft.status === 'won' || draft.status === 'archived'
   const text = [draft.title, draft.details, draft.nextStep, ...draft.workItems.map((item) => item.title), ...draft.notes.map((item) => item.text)].join(' ')
   const suggestedCompetencies = suggestCompetencyIds(text, competencies, competencyKeywords)
   const inferred = inferLevelSignal(text, profile.currentLevel) as { level: LevelKey; reason: string }
@@ -810,10 +879,11 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
   return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={`${styles.compactCard} ${styles.ideaDialogCard}`} role="dialog" aria-modal="true" aria-label="Карточка идеи">
     <header className={styles.workspaceHeader}>
       <div className={styles.ideaActionRow}>
-        <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as ActiveIdeaStatus })} aria-label="Статус идеи">
-          {KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
+        <select value={draft.status} disabled={isTerminal} onChange={(event) => setDraft({ ...draft, status: event.target.value as ActiveIdeaStatus })} aria-label="Статус идеи">
+          {isTerminal && <option value={draft.status}>{statusLabels[draft.status]}</option>}
+          {!isTerminal && KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
         </select>
-        <button type="button" className={styles.primaryButton} disabled={!draft.title.trim() || draft.status === 'won'} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Win!</button>
+        <button type="button" className={styles.primaryButton} disabled={!draft.title.trim() || isTerminal} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Win!</button>
       </div>
       <button type="button" className={styles.workspaceCloseButton} aria-label="Закрыть" onClick={onClose}>×</button>
     </header>
@@ -845,7 +915,15 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
         <div className={styles.evidenceList}>{draft.evidenceNotes.map((item) => <article key={item.id}><span>◆</span><p>{item.text}</p></article>)}</div>
       </details>
     </div>
-    <footer className={styles.workspaceFooter}><button className={styles.secondaryButton} type="button" onClick={onClose}>Закрыть</button><button className={styles.primaryButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Сохранить идею</button></footer>
+    <footer className={styles.workspaceFooter}>
+      <div>{draft.status === 'archived'
+        ? <button className={styles.secondaryButton} type="button" onClick={() => { const saved = onSave(draft, false); onRestore(saved.id) }}>Вернуть в задумки</button>
+        : draft.status === 'won'
+          ? <span className={styles.terminalIdeaHint}>Идея уже оформлена как win</span>
+          : canArchive && <button className={styles.archiveAction} type="button" onClick={() => { const saved = onSave(draft, false); onArchive(saved.id) }}>В архив</button>}
+      </div>
+      <div><button className={styles.secondaryButton} type="button" onClick={onClose}>Закрыть</button><button className={styles.primaryButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Сохранить идею</button></div>
+    </footer>
   </section></div>
 }
 
@@ -869,7 +947,7 @@ function AiGuidancePanel({ guidance, compact = false, onSaveNextStep, onApplyRew
 
 function ProfileModal({ profile: initial, onClose, onSave, onExport, onImport }: { profile: Profile; onClose: () => void; onSave: (profile: Profile) => void; onExport: () => void; onImport: () => void }) {
   const [profile, setProfile] = useState(initial)
-  return <Modal title="Профиль" subtitle="Название должности и уровень задаются отдельно: свободный title не определяет ожидания шкалы." onClose={onClose}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); onSave(profile) }}><label className={styles.field}>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label className={styles.field}>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><div className={styles.optionalBlock}><div><strong>Локальные данные</strong><span>Экспортируйте резервную копию или импортируйте её на другом устройстве.</span></div><div className={styles.buttonRow}><button type="button" className={styles.secondaryButton} onClick={onExport}>Экспорт</button><button type="button" className={styles.secondaryButton} onClick={onImport}>Импорт</button></div></div><div className={styles.modalActions}><button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить</button></div></form></Modal>
+  return <Modal title="Профиль" subtitle="Уровень определяет ожидания шкалы; рынок и отчётный цикл помогают сохранять рабочий контекст." onClose={onClose}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); onSave(profile) }}><label className={styles.field}>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label className={styles.field}>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><section className={styles.profileCycleBox}><div><strong>Отчётный цикл</strong><span>Используется только для периода в «Отчётах». Это не дедлайн и не автоматический review.</span></div><div className={styles.formGrid}><label className={styles.field}>Ритм<select value={profile.reportingRhythm} onChange={(event) => setProfile({ ...profile, reportingRhythm: event.target.value as Profile['reportingRhythm'] })}>{Object.entries(reportingRhythmLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Конец текущего цикла<input type="date" value={profile.cycleEnd} onChange={(event) => setProfile({ ...profile, cycleEnd: event.target.value })} /></label></div></section><div className={styles.optionalBlock}><div><strong>Локальные данные</strong><span>Экспортируйте резервную копию или импортируйте её на другом устройстве.</span></div><div className={styles.buttonRow}><button type="button" className={styles.secondaryButton} onClick={onExport}>Экспорт</button><button type="button" className={styles.secondaryButton} onClick={onImport}>Импорт</button></div></div><div className={styles.modalActions}><button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить</button></div></form></Modal>
 }
 
 function useDialogBehavior(onClose: () => void) {
@@ -892,7 +970,7 @@ function Modal({ title, subtitle, onClose, children, wide = false }: { title: st
 
 function Onboarding({ initial, onComplete, onDemo }: { initial: Profile; onComplete: (profile: Profile) => void; onDemo: () => void }) {
   const [profile, setProfile] = useState(initial)
-  return <div className={styles.onboardingBackdrop}><section className={styles.onboarding}><div className={styles.onboardingVisual}><span className={styles.brandMark}><LadderLogo /></span><p>Эскада</p><h1>Записал.<br />Развил.<br />Подтвердил.</h1><div className={styles.onboardingFlow}><span>Мысль</span><i>→</i><span>Win</span><i>→</i><span>Рост</span></div></div><form onSubmit={(event) => { event.preventDefault(); onComplete(profile) }}><span className={styles.eyebrow}>Настройка за минуту</span><h2>Добавьте рабочий контекст</h2><p>Должность и уровень разделены. Уровень определяет ожидания и рекомендации Эскады.</p><label>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><button className={styles.primaryButton} type="submit">Начать работу</button><button className={styles.textButton} type="button" onClick={onDemo}>Посмотреть с демо-данными</button></form></section></div>
+  return <div className={styles.onboardingBackdrop}><section className={styles.onboarding}><div className={styles.onboardingVisual}><span className={styles.brandMark}><LadderLogo /></span><p>Эскада</p><h1>Записал.<br />Развил.<br />Подтвердил.</h1><div className={styles.onboardingFlow}><span>Мысль</span><i>→</i><span>Win</span><i>→</i><span>Рост</span></div></div><form onSubmit={(event) => { event.preventDefault(); onComplete(profile) }}><span className={styles.eyebrow}>Настройка за минуту</span><h2>Добавьте рабочий контекст</h2><p>Уровень определяет ожидания и рекомендации Эскады. Рынок помогает сохранить рабочий контекст; отчётный цикл можно настроить позже в профиле.</p><label>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><button className={styles.primaryButton} type="submit">Начать работу</button><button className={styles.textButton} type="button" onClick={onDemo}>Посмотреть с демо-данными</button></form></section></div>
 }
 
 function EmptyState({ title, text, action, onAction }: { title: string; text: string; action: string; onAction: () => void }) {

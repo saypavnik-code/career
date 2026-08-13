@@ -86,3 +86,15 @@ automatic level assignment remain excluded — none of the above
 recommendations introduce any of these; they only make the existing local,
 button/heuristic-driven guidance more proactive within a single user's own
 data.
+
+## Sprint v25 implementation status
+
+The three continuity recommendations above are now represented in the product flow:
+
+- the win-ready signal is surfaced directly on the idea kanban;
+- linked wins show the source idea, and saved reports can be reopened;
+- `reportingRhythm` / `cycleEnd` now drive the default reporting period and are editable from Profile, with an explicit contextual control in Reports rather than a new Today-screen interruption.
+
+A second continuity gap was also closed: archiving an idea is now reversible, and deleting a win that came from an idea restores that source idea to `outcomes` instead of leaving it stranded in terminal `won`.
+
+The "Сегодня" screen remains intentionally limited to capture + pin board; reporting-cycle context lives in Reports/Profile so the capture step stays low-friction.

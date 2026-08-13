@@ -5,6 +5,7 @@ export const SCHEMA_VERSION = 5
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const LEVEL_ORDER = ['specialist', 'senior', 'lead']
+const REPORTING_RHYTHM_MONTHS = { monthly: 1, quarterly: 3, 'half-year': 6 }
 
 export function createId(prefix = 'item') {
   const random = Math.random().toString(36).slice(2, 8)
@@ -13,6 +14,37 @@ export function createId(prefix = 'item') {
 
 export function todayIso(now = new Date()) {
   return now.toISOString().slice(0, 10)
+}
+
+function parseIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return null
+  const parsed = new Date(`${value}T00:00:00.000Z`)
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value ? null : parsed
+}
+
+function shiftUtcMonthsClamped(date, months) {
+  const targetMonth = date.getUTCMonth() + months
+  const first = new Date(Date.UTC(date.getUTCFullYear(), targetMonth, 1))
+  const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate()
+  first.setUTCDate(Math.min(date.getUTCDate(), lastDay))
+  return first
+}
+
+export function computeReportingCycle(profile = {}, now = new Date()) {
+  const rhythm = Object.prototype.hasOwnProperty.call(REPORTING_RHYTHM_MONTHS, profile?.reportingRhythm)
+    ? profile.reportingRhythm
+    : 'monthly'
+  const today = parseIsoDate(todayIso(now))
+  const fallbackEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0))
+  const end = parseIsoDate(profile?.cycleEnd) ?? fallbackEnd
+  const previousBoundary = shiftUtcMonthsClamped(end, -REPORTING_RHYTHM_MONTHS[rhythm])
+  const start = new Date(previousBoundary.getTime() + DAY_MS)
+  return {
+    rhythm,
+    periodStart: start.toISOString().slice(0, 10),
+    periodEnd: end.toISOString().slice(0, 10),
+    daysRemaining: Math.round((end.getTime() - today.getTime()) / DAY_MS),
+  }
 }
 
 export function normalizeText(value = '') {
@@ -361,7 +393,7 @@ export function buildCoachNotes(state, competencies, now = new Date()) {
 }
 
 export function createDefaultState(now = new Date()) {
-  const end = new Date(now.getTime() + 90 * DAY_MS)
+  const defaultCycle = computeReportingCycle({ reportingRhythm: 'monthly', cycleEnd: '' }, now)
   return {
     version: SCHEMA_VERSION,
     onboardingComplete: false,
@@ -371,7 +403,7 @@ export function createDefaultState(now = new Date()) {
       market: '',
       currentLevel: 'specialist',
       reportingRhythm: 'monthly',
-      cycleEnd: end.toISOString().slice(0, 10),
+      cycleEnd: defaultCycle.periodEnd,
     },
     notes: [],
     ideas: [],
@@ -789,9 +821,19 @@ export function winGapHints(win) {
 export function deleteWin(state, winId) {
   const wins = Array.isArray(state?.wins) ? state.wins : []
   const reports = Array.isArray(state?.reports) ? state.reports : []
+  const ideas = Array.isArray(state?.ideas) ? state.ideas : null
+  const removed = wins.find((item) => item.id === winId)
+  const sourceIdeaId = removed?.sourceIdeaId ?? null
+  const remainingWins = wins.filter((item) => item.id !== winId)
+  const sourceStillHasWin = sourceIdeaId ? remainingWins.some((item) => item.sourceIdeaId === sourceIdeaId) : false
   return {
     ...state,
-    wins: wins.filter((item) => item.id !== winId),
+    wins: remainingWins,
+    ...(ideas ? { ideas: ideas.map((idea) => (
+      sourceIdeaId && !sourceStillHasWin && idea.id === sourceIdeaId && idea.status === 'won'
+        ? { ...idea, status: 'outcomes', updatedAt: new Date().toISOString() }
+        : idea
+    )) } : {}),
     reports: reports.map((report) => (
       report.winIds?.includes(winId)
         ? { ...report, winIds: report.winIds.filter((id) => id !== winId) }

@@ -4,6 +4,7 @@ import { buildLocalGuidance } from '../app/career/local-guidance.mjs'
 import {
   createDefaultState,
   createNote,
+  computeReportingCycle,
   deleteWin,
   deriveNoteTitle,
   buildCoachNotes,
@@ -462,4 +463,55 @@ test('buildCoachNotes surfaces a win-ready idea using the outcomes status, not s
   const winNote = notes.find((note) => note.kind === 'win')
   assert.ok(winNote, 'a win-kind coach note should be produced for an outcomes-status idea with no linked win')
   assert.equal(winNote.ideaId, 'idea-1')
+})
+
+// v25 reporting cycle and reversible archive funnel
+
+test('computeReportingCycle uses calendar-aligned profile periods', () => {
+  assert.deepEqual(
+    computeReportingCycle({ reportingRhythm: 'monthly', cycleEnd: '2026-08-31' }, new Date('2026-08-13T12:00:00.000Z')),
+    { rhythm: 'monthly', periodStart: '2026-08-01', periodEnd: '2026-08-31', daysRemaining: 18 },
+  )
+  assert.deepEqual(
+    computeReportingCycle({ reportingRhythm: 'quarterly', cycleEnd: '2026-09-30' }, new Date('2026-08-13T12:00:00.000Z')),
+    { rhythm: 'quarterly', periodStart: '2026-07-01', periodEnd: '2026-09-30', daysRemaining: 48 },
+  )
+  assert.deepEqual(
+    computeReportingCycle({ reportingRhythm: 'half-year', cycleEnd: '2026-12-31' }, new Date('2026-08-13T12:00:00.000Z')),
+    { rhythm: 'half-year', periodStart: '2026-07-01', periodEnd: '2026-12-31', daysRemaining: 140 },
+  )
+})
+
+test('new profiles default to the current monthly reporting cycle', () => {
+  const state = createDefaultState(new Date('2026-08-13T12:00:00.000Z'))
+  assert.equal(state.profile.reportingRhythm, 'monthly')
+  assert.equal(state.profile.cycleEnd, '2026-08-31')
+})
+
+test('deleteWin restores its linked source idea to outcomes and cleans report references', () => {
+  const state = {
+    ideas: [
+      { id: 'idea-1', title: 'Linked', status: 'won', updatedAt: '2026-08-01T00:00:00.000Z' },
+      { id: 'idea-2', title: 'Other', status: 'archived', updatedAt: '2026-08-01T00:00:00.000Z' },
+    ],
+    wins: [
+      { id: 'win-1', title: 'Result', sourceIdeaId: 'idea-1' },
+      { id: 'win-2', title: 'Other', sourceIdeaId: null },
+    ],
+    reports: [{ id: 'report-1', winIds: ['win-1', 'win-2'] }],
+  }
+  const result = deleteWin(state, 'win-1')
+  assert.equal(result.ideas.find((idea) => idea.id === 'idea-1').status, 'outcomes')
+  assert.equal(result.ideas.find((idea) => idea.id === 'idea-2').status, 'archived')
+  assert.deepEqual(result.reports[0].winIds, ['win-2'])
+
+  const duplicateLinked = deleteWin({
+    ideas: [{ id: 'idea-1', title: 'Linked', status: 'won' }],
+    wins: [
+      { id: 'win-a', sourceIdeaId: 'idea-1' },
+      { id: 'win-b', sourceIdeaId: 'idea-1' },
+    ],
+    reports: [],
+  }, 'win-a')
+  assert.equal(duplicateLinked.ideas[0].status, 'won')
 })
