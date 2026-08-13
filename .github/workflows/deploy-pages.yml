@@ -56,6 +56,14 @@ jobs:
           NEXT_PUBLIC_ESCADA_AI_ENDPOINT: ${{ vars.ESCADA_AI_ENDPOINT }}
         run: npm run build
 
+      - name: Verify PWA artifact
+        run: |
+          test -f out/sw.js
+          test -f out/manifest.webmanifest
+          test -f out/icons/escada-192.png
+          test -f out/icons/escada-512.png
+          grep -q "PRECACHE_URLS" out/sw.js
+
       - name: Stamp deployed commit
         run: |
           test -f out/index.html

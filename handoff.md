@@ -148,6 +148,12 @@ tests/
   бесшовные текстовые поля без resize-handles, компактные capsule-actions,
   мягкий material/backdrop и спокойный disclosure для вторичных деталей;
   функциональность и модель данных не менялись.
+- **v29** — полноценный PWA app shell без изменения schema v5: статический web manifest,
+  standalone/iOS metadata, maskable + Apple icons, service worker с precache всего
+  статического export и offline navigation fallback; desktop sidebar сворачивается
+  в icon rail, состояние сохраняется отдельно от пользовательских данных, доступен
+  Ctrl/⌘ B; Chromium install prompt и offline-state встроены в topbar, standalone
+  режим учитывает safe areas.
 
 ## Открытые вопросы (ничего не решено в одиночку)
 

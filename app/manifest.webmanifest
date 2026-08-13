@@ -1,0 +1,52 @@
+{
+  "id": "./",
+  "name": "Эскада — профессиональная память",
+  "short_name": "Эскада",
+  "description": "Личная профессиональная память: мысли, идеи, wins, отчёты и карьерный рост.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f8fc",
+  "theme_color": "#f7f8fc",
+  "categories": [
+    "productivity",
+    "business"
+  ],
+  "icons": [
+    {
+      "src": "./icons/escada-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/escada-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/escada-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Записать мысль",
+      "short_name": "Сегодня",
+      "url": "./?view=today"
+    },
+    {
+      "name": "Открыть идеи",
+      "short_name": "Идеи",
+      "url": "./?view=ideas"
+    },
+    {
+      "name": "Открыть wins",
+      "short_name": "Wins",
+      "url": "./?view=wins"
+    }
+  ]
+}

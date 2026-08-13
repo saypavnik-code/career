@@ -37,6 +37,8 @@ import {
 } from './career-core.mjs'
 
 const ESCADA_AI_ENDPOINT = process.env.NEXT_PUBLIC_ESCADA_AI_ENDPOINT?.trim() ?? ''
+const ESCADA_BASE_PATH = process.env.NEXT_PUBLIC_ESCADA_BASE_PATH?.trim() ?? ''
+const SIDEBAR_STORAGE_KEY = 'escada:ui:sidebar-collapsed'
 
 type View = 'today' | 'ideas' | 'wins' | 'reports' | 'growth'
 type IdeaStatus = 'concept' | 'preparation' | 'in_progress' | 'outcomes' | 'won' | 'archived'
@@ -165,6 +167,11 @@ interface AiResponse {
   knowledgeBaseVersion: string
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
 const navItems: Array<{ id: View; label: string; caption: string; icon: string }> = [
   { id: 'today', label: 'Сегодня', caption: 'Быстрая мысль', icon: '◉' },
   { id: 'ideas', label: 'Идеи', caption: 'Развить мысль', icon: '✦' },
@@ -268,6 +275,14 @@ function LadderLogo({ compact = false }: { compact?: boolean }) {
   return <svg className={compact ? styles.logoSvgCompact : styles.logoSvg} viewBox="0 0 48 48" aria-hidden="true"><path d="M8 36h9V27h9V18h14" fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }
 
+function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
+  return <svg className={styles.sidebarToggleSvg} viewBox="0 0 20 20" aria-hidden="true">
+    <rect x="2.5" y="3" width="15" height="14" rx="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M7 3.8v12.4" fill="none" stroke="currentColor" strokeWidth="1.35" />
+    <path d={collapsed ? 'm10 7 3 3-3 3' : 'm13 7-3 3 3 3'} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+}
+
 export default function CareerDashboard() {
   const [view, setView] = useState<View>('today')
   const [state, setState] = useState<CareerState>(() => asState(createDefaultState()))
@@ -278,6 +293,10 @@ export default function CareerDashboard() {
   const [newIdeaFromNote, setNewIdeaFromNote] = useState<Idea | null>(null)
   const [winDraft, setWinDraft] = useState<WinDraft | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isStandalone, setIsStandalone] = useState(false)
+  const [isOffline, setIsOffline] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [notice, setNotice] = useState('')
   const [periodStart, setPeriodStart] = useState(dateDaysAgo(90))
   const [periodEnd, setPeriodEnd] = useState(todayIso())
@@ -297,15 +316,97 @@ export default function CareerDashboard() {
     const previous = PREVIOUS_STORAGE_KEYS.map((key) => safeJsonParse(window.localStorage.getItem(key))).find(Boolean) ?? null
     const loaded = asState(migrateState(current ?? previous, createDefaultState()))
     const cycle = computeReportingCycle(loaded.profile, new Date()) as { periodStart: string; periodEnd: string }
+    const navigatorWithStandalone = window.navigator as Navigator & { standalone?: boolean }
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || Boolean(navigatorWithStandalone.standalone)
+    const savedSidebar = window.localStorage.getItem(SIDEBAR_STORAGE_KEY)
+    const requestedView = new URL(window.location.href).searchParams.get('view') as View | null
     setState(loaded)
     setPeriodStart(cycle.periodStart)
     setPeriodEnd(cycle.periodEnd)
+    setIsStandalone(standalone)
+    setIsOffline(!window.navigator.onLine)
+    setSidebarCollapsed(savedSidebar === null ? standalone : savedSidebar === '1')
+    if (requestedView && navItems.some((item) => item.id === requestedView)) setView(requestedView)
     setHydrated(true)
   }, [])
 
   useEffect(() => {
     if (hydrated) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   }, [hydrated, state])
+
+  useEffect(() => {
+    if (!hydrated) return
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, sidebarCollapsed ? '1' : '0')
+  }, [hydrated, sidebarCollapsed])
+
+  useEffect(() => {
+    if (!hydrated) return
+    const url = new URL(window.location.href)
+    if (view === 'today') url.searchParams.delete('view')
+    else url.searchParams.set('view', view)
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [hydrated, view])
+
+  useEffect(() => {
+    const displayMode = window.matchMedia('(display-mode: standalone)')
+    const navigatorWithStandalone = window.navigator as Navigator & { standalone?: boolean }
+    const syncStandalone = () => setIsStandalone(displayMode.matches || Boolean(navigatorWithStandalone.standalone))
+    const goOnline = () => setIsOffline(false)
+    const goOffline = () => setIsOffline(true)
+    const beforeInstall = (event: Event) => {
+      event.preventDefault()
+      setInstallPrompt(event as BeforeInstallPromptEvent)
+    }
+    const installed = () => {
+      setInstallPrompt(null)
+      setIsStandalone(true)
+      setNotice('Эскада установлена как приложение')
+    }
+    displayMode.addEventListener?.('change', syncStandalone)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    window.addEventListener('beforeinstallprompt', beforeInstall)
+    window.addEventListener('appinstalled', installed)
+    return () => {
+      displayMode.removeEventListener?.('change', syncStandalone)
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+      window.removeEventListener('beforeinstallprompt', beforeInstall)
+      window.removeEventListener('appinstalled', installed)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production' || !('serviceWorker' in navigator)) return
+    let active = true
+    navigator.serviceWorker.register(`${ESCADA_BASE_PATH}/sw.js`, { scope: `${ESCADA_BASE_PATH}/` })
+      .then((registration) => {
+        if (!active) return
+        const reportWaiting = () => setNotice('Обновление Эскады готово и применится после перезапуска')
+        if (registration.waiting && navigator.serviceWorker.controller) reportWaiting()
+        registration.addEventListener('updatefound', () => {
+          const worker = registration.installing
+          worker?.addEventListener('statechange', () => {
+            if (active && worker.state === 'installed' && navigator.serviceWorker.controller) reportWaiting()
+          })
+        })
+      })
+      .catch(() => { /* PWA enhancement is optional; core local-first app must keep working. */ })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const isEditing = target?.matches('input, textarea, select, [contenteditable="true"]')
+      if (!isEditing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b' && window.innerWidth > 780) {
+        event.preventDefault()
+        setSidebarCollapsed((current) => !current)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     if (!notice) return
@@ -327,6 +428,14 @@ export default function CareerDashboard() {
 
   function updateState(updater: (current: CareerState) => CareerState) {
     setState((current) => updater(current))
+  }
+
+  async function installPwa() {
+    if (!installPrompt) return
+    await installPrompt.prompt()
+    const choice = await installPrompt.userChoice
+    setInstallPrompt(null)
+    setNotice(choice.outcome === 'accepted' ? 'Установка Эскады началась' : 'Установку можно запустить позже')
   }
 
   async function requestAi(action: AiAction, artifact: Record<string, unknown>, competencyIds: string[] = []) {
@@ -547,19 +656,26 @@ export default function CareerDashboard() {
   if (!hydrated) return <main className={styles.loading}>Загружаем Эскаду…</main>
 
   return (
-    <main className={styles.shell}>
+    <main className={[styles.shell, sidebarCollapsed ? styles.shellSidebarCollapsed : '', isStandalone ? styles.pwaStandalone : ''].filter(Boolean).join(' ')}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}><span className={styles.brandMark}><LadderLogo /></span><div><strong>Эскада</strong><small>профессиональная память</small></div></div>
         <nav className={styles.nav} aria-label="Основная навигация">
-          {navItems.map((item) => <button key={item.id} type="button" className={view === item.id ? styles.navActive : styles.navItem} onClick={() => setView(item.id)}><span className={styles.navIcon}>{item.icon}</span><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}
+          {navItems.map((item) => <button key={item.id} type="button" className={view === item.id ? styles.navActive : styles.navItem} aria-current={view === item.id ? 'page' : undefined} title={sidebarCollapsed ? item.label : undefined} onClick={() => setView(item.id)}><span className={styles.navIcon}>{item.icon}</span><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}
         </nav>
         <div className={styles.sidebarCard}><span>Текущий уровень</span><strong>{levelLabels[state.profile.currentLevel]}</strong><p>Ожидания и подсказки меняются вместе с уровнем профиля.</p></div>
       </aside>
 
       <section className={styles.workspace}>
         <header className={styles.topbar}>
-          <div><p className={styles.eyebrow}>Записал → развил → подтвердил → оформил</p><h1>{navItems.find((item) => item.id === view)?.label}</h1></div>
-          <button type="button" className={styles.profileChip} onClick={() => setProfileOpen(true)}><span>{state.profile.name.slice(0, 1) || 'Э'}</span><div><strong>{state.profile.name || 'Мой профиль'}</strong><small>{levelLabels[state.profile.currentLevel]}</small></div></button>
+          <div className={styles.topbarLeading}>
+            <button type="button" className={styles.sidebarToggleButton} aria-label={sidebarCollapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'} title={`${sidebarCollapsed ? 'Развернуть' : 'Свернуть'} боковую панель · Ctrl/⌘ B`} onClick={() => setSidebarCollapsed((current) => !current)}><SidebarToggleIcon collapsed={sidebarCollapsed} /></button>
+            <div><p className={styles.eyebrow}>Записал → развил → подтвердил → оформил</p><h1>{navItems.find((item) => item.id === view)?.label}</h1></div>
+          </div>
+          <div className={styles.topbarActions}>
+            {isOffline && <span className={styles.offlineBadge} role="status"><span aria-hidden="true" />Офлайн</span>}
+            {!isStandalone && installPrompt && <button type="button" className={styles.pwaInstallButton} onClick={installPwa} title="Установить Эскаду как приложение"><span aria-hidden="true">↓</span><strong>Установить</strong></button>}
+            <button type="button" className={styles.profileChip} onClick={() => setProfileOpen(true)}><span>{state.profile.name.slice(0, 1) || 'Э'}</span><div><strong>{state.profile.name || 'Мой профиль'}</strong><small>{levelLabels[state.profile.currentLevel]}</small></div></button>
+          </div>
         </header>
 
         {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}

@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { buildLocalGuidance } from '../app/career/local-guidance.mjs'
 import {
   createDefaultState,
@@ -514,4 +515,38 @@ test('deleteWin restores its linked source idea to outcomes and cleans report re
     reports: [],
   }, 'win-a')
   assert.equal(duplicateLinked.ideas[0].status, 'won')
+})
+
+// v29 PWA app-shell regression checks
+
+test('PWA metadata and build pipeline are wired for standalone static export', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../app/manifest.webmanifest', import.meta.url), 'utf8'))
+  const layout = readFileSync(new URL('../app/layout.tsx', import.meta.url), 'utf8')
+  const packageJson = readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+  assert.equal(manifest.display, 'standalone')
+  assert.equal(manifest.start_url, './')
+  assert.equal(manifest.scope, './')
+  assert.ok(manifest.icons.some((icon) => icon.src === './icons/escada-maskable-512.png' && icon.purpose === 'maskable'))
+  assert.match(layout, /appleWebApp/)
+  assert.match(layout, /viewportFit:\s*'cover'/)
+  assert.match(packageJson, /build-pwa-sw\.mjs/)
+})
+
+test('PWA service-worker builder keeps GitHub Pages basePath and offline navigation fallback', () => {
+  const builder = readFileSync(new URL('../scripts/build-pwa-sw.mjs', import.meta.url), 'utf8')
+  assert.match(builder, /GITHUB_REPOSITORY/)
+  assert.match(builder, /request\.mode === 'navigate'/)
+  assert.match(builder, /caches\.match\(APP_SHELL_URL\)/)
+  assert.match(builder, /_next\/static/)
+})
+
+test('PWA shell exposes collapsible sidebar, install prompt and offline state', () => {
+  const dashboard = readFileSync(new URL('../app/career/CareerDashboard.tsx', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../app/career/career.module.css', import.meta.url), 'utf8')
+  assert.match(dashboard, /SIDEBAR_STORAGE_KEY/)
+  assert.match(dashboard, /beforeinstallprompt/)
+  assert.match(dashboard, /serviceWorker\.register/)
+  assert.match(dashboard, /Ctrl\/⌘ B/)
+  assert.match(css, /escada-pwa-shell-v29/)
+  assert.match(css, /shellSidebarCollapsed/)
 })

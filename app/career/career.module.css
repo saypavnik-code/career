@@ -1868,3 +1868,114 @@
   .artifactSaveButton { min-width: 72px; margin-left: auto; }
   .artifactToolButton { padding-inline: 8px; }
 }
+
+/* escada-pwa-shell-v29: installable local-first app shell + collapsible SaaS sidebar. */
+.shell {
+  min-height: 100dvh;
+  transition: grid-template-columns 180ms cubic-bezier(.2,.8,.2,1);
+}
+.sidebar {
+  min-height: 100dvh;
+  height: 100dvh;
+  transition: padding 180ms cubic-bezier(.2,.8,.2,1);
+  overflow: hidden;
+}
+.brand,
+.navItem,
+.navActive,
+.sidebarCard {
+  transition: gap 160ms ease, padding 160ms ease, opacity 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+.shellSidebarCollapsed { grid-template-columns: 84px minmax(0, 1fr); }
+.shellSidebarCollapsed .sidebar { padding-inline: 12px; }
+.shellSidebarCollapsed .brand { justify-content: center; padding-inline: 0; }
+.shellSidebarCollapsed .brand > div { display: none; }
+.shellSidebarCollapsed .brandMark { width: 42px; height: 42px; }
+.shellSidebarCollapsed .navItem,
+.shellSidebarCollapsed .navActive {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 0;
+  min-height: 48px;
+  padding: 10px 8px;
+  border-radius: 14px;
+}
+.shellSidebarCollapsed .navItem > span:last-child,
+.shellSidebarCollapsed .navActive > span:last-child,
+.shellSidebarCollapsed .sidebarCard { display: none; }
+.shellSidebarCollapsed .navIcon { width: 28px; font-size: 18px; }
+.shellSidebarCollapsed .navActive { box-shadow: 0 8px 24px rgba(0,0,0,.16); }
+.topbarLeading,
+.topbarActions { min-width: 0; display: flex; align-items: center; }
+.topbarLeading { gap: 14px; }
+.topbarActions { gap: 9px; justify-content: flex-end; }
+.sidebarToggleButton {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--navy) 5%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+.sidebarToggleButton:hover { background: white; color: var(--ink); transform: translateY(-1px); }
+.sidebarToggleSvg { width: 19px; height: 19px; }
+.offlineBadge,
+.pwaInstallButton {
+  min-height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 800;
+}
+.offlineBadge {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  color: var(--muted);
+}
+.offlineBadge > span { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.pwaInstallButton {
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  color: var(--accent-dark);
+  padding: 7px 11px;
+}
+.pwaInstallButton:hover { background: color-mix(in srgb, var(--accent) 11%, var(--panel)); }
+.pwaInstallButton > span { font-size: 15px; line-height: 1; transform: translateY(-1px); }
+.pwaInstallButton strong { font-size: inherit; }
+.pwaStandalone { min-height: 100dvh; }
+.pwaStandalone .sidebar {
+  padding-top: calc(24px + env(safe-area-inset-top));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+}
+.pwaStandalone .workspace { padding-top: env(safe-area-inset-top); }
+@media (max-width: 1100px) and (min-width: 781px) {
+  .shellSidebarCollapsed { grid-template-columns: 78px minmax(0, 1fr); }
+  .shellSidebarCollapsed .sidebar { padding-inline: 10px; }
+}
+@media (max-width: 780px) {
+  .shellSidebarCollapsed { display: block; }
+  .sidebarToggleButton { display: none; }
+  .topbarLeading { gap: 0; }
+  .topbarActions { gap: 6px; }
+  .offlineBadge { padding-inline: 9px; }
+  .pwaInstallButton { width: 38px; min-width: 38px; justify-content: center; padding: 0; }
+  .pwaInstallButton strong { display: none; }
+  .pwaStandalone .workspace { padding-top: env(safe-area-inset-top); }
+  .pwaStandalone .mobileNav { bottom: calc(8px + env(safe-area-inset-bottom)); }
+}
+@media (display-mode: standalone) {
+  .shell { min-height: 100dvh; }
+  .sidebar { min-height: 100dvh; height: 100dvh; }
+}
