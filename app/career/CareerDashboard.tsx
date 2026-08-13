@@ -860,7 +860,6 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, canArchive, onClo
   const [noteText, setNoteText] = useState('')
   const [evidenceText, setEvidenceText] = useState('')
   const [guidance, setGuidance] = useState<AiResponse | null>(null)
-  useDialogBehavior(onClose)
   const isTerminal = draft.status === 'won' || draft.status === 'archived'
   const text = [draft.title, draft.details, draft.nextStep, ...draft.workItems.map((item) => item.title), ...draft.notes.map((item) => item.text)].join(' ')
   const suggestedCompetencies = suggestCompetencyIds(text, competencies, competencyKeywords)
@@ -871,60 +870,66 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, canArchive, onClo
   const nextExpectations = target ? selectedCompetencies.flatMap((id) => competencyById(id)?.levels[target].slice(0, 2) ?? []).slice(0, 3) : []
 
   async function runAi() { setGuidance(await onAi(draft)) }
-
   function addNote() { const value = noteText.trim(); if (!value) return; setDraft((current) => ({ ...current, notes: [...current.notes, { id: createId('note'), text: value, createdAt: new Date().toISOString() }] })); setNoteText('') }
   function addEvidence() { const value = evidenceText.trim(); if (!value) return; setDraft((current) => ({ ...current, evidenceNotes: [...current.evidenceNotes, { id: createId('evidence'), text: value, createdAt: new Date().toISOString() }] })); setEvidenceText('') }
   function toggleCompetency(id: string) { setDraft((current) => ({ ...current, competencyIds: current.competencyIds.includes(id) ? current.competencyIds.filter((item) => item !== id) : [...current.competencyIds, id] })) }
 
-  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={`${styles.compactCard} ${styles.ideaDialogCard}`} role="dialog" aria-modal="true" aria-label="Карточка идеи">
-    <header className={styles.workspaceHeader}>
-      <div className={styles.ideaActionRow}>
-        <select value={draft.status} disabled={isTerminal} onChange={(event) => setDraft({ ...draft, status: event.target.value as ActiveIdeaStatus })} aria-label="Статус идеи">
-          {isTerminal && <option value={draft.status}>{statusLabels[draft.status]}</option>}
-          {!isTerminal && KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
-        </select>
-        <button type="button" className={styles.primaryButton} disabled={!draft.title.trim() || isTerminal} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Win!</button>
-      </div>
-      <button type="button" className={styles.workspaceCloseButton} aria-label="Закрыть" onClick={onClose}>×</button>
-    </header>
-    <div className={styles.compactCardBody}>
-      <section className={styles.workspaceSectionSpacious}>
-        <input className={styles.ideaTitleInput} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Название идеи" autoFocus />
-        <textarea className={styles.largeTextarea} value={draft.details} onChange={(event) => setDraft({ ...draft, details: event.target.value })} placeholder="В чём идея и почему она может быть полезна?" />
-      </section>
+  const statusControl = <select className={styles.artifactStatusSelect} value={draft.status} disabled={isTerminal} onChange={(event) => setDraft({ ...draft, status: event.target.value as ActiveIdeaStatus })} aria-label="Статус идеи">
+    {isTerminal && <option value={draft.status}>{statusLabels[draft.status]}</option>}
+    {!isTerminal && KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
+  </select>
 
-      <section className={styles.signalCard}><span className={styles.eyebrow}>Карьерная подсказка</span><h3>{levelLabels[inferred.level]}</h3><p>{inferred.reason}</p><details><summary>Ожидания текущего уровня</summary><ul>{currentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>{target && <details><summary>Как выйти на {levelLabels[target]}</summary><ul>{nextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}</section>
-
-      <section className={styles.workspaceSectionSpacious}>
-        <div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Компетенции</span><h3>Контекст идеи</h3></div></div>
-        <div className={styles.choiceChips}>{competencies.map((competency) => <button type="button" key={competency.id} className={draft.competencyIds.includes(competency.id) ? styles.choiceActive : ''} onClick={() => toggleCompetency(competency.id)}>{competency.shortTitle}</button>)}</div>
-      </section>
-
-      <section className={styles.aiPanel}><span className={styles.eyebrow}>Только по запросу</span><h3>Разобрать с Эскадой</h3><p>Эскада сопоставит карточку с релевантными пунктами шкалы и подскажет следующий шаг. Внешние карьерные фреймворки не используются.</p><button className={styles.primaryButton} type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Разбираем…' : 'Разобрать с Эскадой'}</button>{error && <p className={styles.aiError}>{error}</p>}</section>
-      {guidance && <AiGuidancePanel guidance={guidance} compact />}
-
-      <details className={styles.secondarySection}>
-        <summary>Рабочие заметки</summary>
-        <div className={styles.addInline}><input value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Решение, наблюдение, обратная связь…" /><button type="button" onClick={addNote}>Добавить</button></div>
-        <div className={styles.notesTimeline}>{draft.notes.map((note) => <article key={note.id}><span>{formatDate(note.createdAt.slice(0, 10))}</span><p>{note.text}</p></article>)}</div>
-      </details>
-
-      <details className={styles.secondarySection}>
-        <summary>Доказательства</summary>
-        <div className={styles.addInline}><input value={evidenceText} onChange={(event) => setEvidenceText(event.target.value)} placeholder="Ссылка, артефакт, отзыв, метрика, решение…" /><button type="button" onClick={addEvidence}>Добавить</button></div>
-        <div className={styles.evidenceList}>{draft.evidenceNotes.map((item) => <article key={item.id}><span>◆</span><p>{item.text}</p></article>)}</div>
-      </details>
+  const actions = <>
+    <button className={styles.artifactToolButton} type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Разбираем…' : '✦ Подсказка'}</button>
+    <div className={styles.artifactFooterRight}>
+      {draft.status === 'archived' && <button className={styles.artifactToolButton} type="button" onClick={() => { const saved = onSave(draft, false); onRestore(saved.id) }}>Вернуть</button>}
+      {!isTerminal && <button className={styles.artifactToolButton} type="button" disabled={!draft.title.trim()} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Win!</button>}
+      <button className={styles.artifactSaveButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Сохранить</button>
     </div>
-    <footer className={styles.workspaceFooter}>
-      <div>{draft.status === 'archived'
-        ? <button className={styles.secondaryButton} type="button" onClick={() => { const saved = onSave(draft, false); onRestore(saved.id) }}>Вернуть в задумки</button>
-        : draft.status === 'won'
-          ? <span className={styles.terminalIdeaHint}>Идея уже оформлена как win</span>
-          : canArchive && <button className={styles.archiveAction} type="button" onClick={() => { const saved = onSave(draft, false); onArchive(saved.id) }}>В архив</button>}
+  </>
+
+  return <ArtifactEditorShell label="Идея" meta={statusControl} onClose={onClose} actions={actions}>
+    <div className={styles.artifactTextFields}>
+      <input className={styles.artifactTitleEditor} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Название идеи" aria-label="Название идеи" autoFocus />
+      <textarea className={styles.artifactMainEditor} value={draft.details} onChange={(event) => setDraft({ ...draft, details: event.target.value })} placeholder="Смысл идеи — что хочется проверить или изменить?" aria-label="Смысл идеи" />
+    </div>
+
+    {error && <p className={styles.aiError}>{error}</p>}
+    {guidance && <AiGuidancePanel guidance={guidance} compact />}
+
+    <details className={styles.artifactDetails}>
+      <summary>Детали</summary>
+      <div className={styles.artifactDetailsContent}>
+        <section className={styles.artifactHint}>
+          <span>Карьерный сигнал</span>
+          <strong>{levelLabels[inferred.level]}</strong>
+          <p>{inferred.reason}</p>
+          {currentExpectations.length > 0 && <details><summary>Ожидания текущего уровня</summary><ul>{currentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}
+          {target && nextExpectations.length > 0 && <details><summary>Как усилить до «{levelLabels[target]}»</summary><ul>{nextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}
+        </section>
+
+        <section className={styles.artifactSubsection}>
+          <strong>Компетенции</strong>
+          <div className={styles.choiceChips}>{competencies.map((competency) => <button type="button" key={competency.id} className={draft.competencyIds.includes(competency.id) ? styles.choiceActive : ''} onClick={() => toggleCompetency(competency.id)}>{competency.shortTitle}</button>)}</div>
+        </section>
+
+        <section className={styles.artifactSubsection}>
+          <strong>Рабочие заметки</strong>
+          <div className={styles.addInline}><input value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Решение, наблюдение, обратная связь…" /><button type="button" onClick={addNote}>Добавить</button></div>
+          <div className={styles.notesTimeline}>{draft.notes.map((note) => <article key={note.id}><span>{formatDate(note.createdAt.slice(0, 10))}</span><p>{note.text}</p></article>)}</div>
+        </section>
+
+        <section className={styles.artifactSubsection}>
+          <strong>Доказательства</strong>
+          <div className={styles.addInline}><input value={evidenceText} onChange={(event) => setEvidenceText(event.target.value)} placeholder="Ссылка, артефакт, отзыв, метрика…" /><button type="button" onClick={addEvidence}>Добавить</button></div>
+          <div className={styles.evidenceList}>{draft.evidenceNotes.map((item) => <article key={item.id}><span>◆</span><p>{item.text}</p></article>)}</div>
+        </section>
+
+        {!isTerminal && canArchive && <button className={styles.artifactDeleteButton} type="button" onClick={() => { const saved = onSave(draft, false); onArchive(saved.id) }}>Переместить в архив</button>}
+        {draft.status === 'won' && <p className={styles.artifactTerminalNote}>Эта идея уже оформлена как win.</p>}
       </div>
-      <div><button className={styles.secondaryButton} type="button" onClick={onClose}>Закрыть</button><button className={styles.primaryButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Сохранить идею</button></div>
-    </footer>
-  </section></div>
+    </details>
+  </ArtifactEditorShell>
 }
 
 function WinModal({ draft: initial, profile, busy, error, onClose, onSave, onDelete, onAi }: { draft: WinDraft; profile: Profile; busy: string; error: string; onClose: () => void; onSave: (draft: WinDraft) => void; onDelete: (winId: string) => void; onAi: (draft: WinDraft) => Promise<AiResponse> }) {
@@ -938,7 +943,51 @@ function WinModal({ draft: initial, profile, busy, error, onClose, onSave, onDel
   const winCurrentExpectations = winSelectedCompetencies.flatMap((id) => competencyById(id)?.levels[profile.currentLevel].slice(0, 2) ?? []).slice(0, 3)
   const winNextExpectations = winTargetLevel ? winSelectedCompetencies.flatMap((id) => competencyById(id)?.levels[winTargetLevel].slice(0, 2) ?? []).slice(0, 3) : []
   async function runAi() { setGuidance(await onAi(draft)) }
-  return <Modal title={draft.id ? 'Открыть win' : 'Зафиксировать win'} subtitle="Просто, но доказуемо. Эскада не будет придумывать недостающие факты." onClose={onClose} wide><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); if (draft.title.trim()) onSave(draft) }}><label className={styles.field}>Что произошло?<input autoFocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label>{draft.sourceContext && <div className={styles.sourceContextRef}><span>Исходный контекст идеи</span><p>{draft.sourceContext}</p></div>}<label className={styles.field}>Почему это важно?<textarea value={draft.impact} onChange={(event) => setDraft({ ...draft, impact: event.target.value })} /></label><label className={styles.field}>Чем это подтверждается?<textarea value={draft.evidence} onChange={(event) => setDraft({ ...draft, evidence: event.target.value })} /></label><details className={styles.optionalBlock}><summary>Дополнительные детали — необязательно</summary><label className={styles.field}>Что изменилось в цифрах?<input value={draft.metrics} onChange={(event) => setDraft({ ...draft, metrics: event.target.value })} placeholder="Только реальные значения" /></label><label className={styles.field}>Кто подтвердил результат?<input value={draft.confirmedBy} onChange={(event) => setDraft({ ...draft, confirmedBy: event.target.value })} placeholder="Руководитель, команда, клиент — если это было" /></label></details><div className={styles.workspaceSectionSpacious}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Компетенции</span><h3>Проверьте или поправьте</h3></div></div><div className={styles.choiceChips}>{competencies.map((competency) => <button type="button" key={competency.id} className={winSelectedCompetencies.includes(competency.id) ? styles.choiceActive : ''} onClick={() => setDraft({ ...draft, competencyIds: draft.competencyIds.includes(competency.id) ? draft.competencyIds.filter((item) => item !== competency.id) : [...winSelectedCompetencies, competency.id] })}>{competency.shortTitle}</button>)}</div></div>{gaps.length > 0 && <div className={styles.guidanceBanner}><strong>Чего не хватает для сильной формулировки</strong><ul>{gaps.map((item) => <li key={item}>{item}</li>)}</ul></div>}{draft.title.trim() && (winCurrentExpectations.length > 0 || winNextExpectations.length > 0) && <section className={styles.signalCard}><span className={styles.eyebrow}>Шкала компетенций</span><h3>Куда это может вести</h3><p>Локальная подсказка без обращения к ИИ — только по вашему тексту и шкале.</p>{winCurrentExpectations.length > 0 && <details><summary>Ожидания текущего уровня</summary><ul>{winCurrentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}{winTargetLevel && winNextExpectations.length > 0 && <details><summary>Как усилить до уровня «{levelLabels[winTargetLevel]}»</summary><ul>{winNextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}</section>}<button className={styles.aiMiniButton} type="button" disabled={busy === 'win_rewrite'} onClick={() => void runAi()}>{busy === 'win_rewrite' ? 'Усиливаем…' : '✦ Усилить формулировку'}</button>{error && <p className={styles.aiError}>{error}</p>}{guidance && <AiGuidancePanel guidance={guidance} compact onApplyRewrite={guidance.rewrite ? () => setDraft({ ...draft, ...(guidance.rewrite ?? {}) }) : undefined} />}<div className={styles.formGrid}><label>Дата<input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label><label className={styles.checkboxField}><input type="checkbox" checked={draft.reportReady} onChange={(event) => setDraft({ ...draft, reportReady: event.target.checked })} /><span>Предлагать для отчётов</span></label></div><div className={styles.modalActions}>{draft.id && <button className={styles.dangerButton} type="button" onClick={() => { if (window.confirm(`Удалить win «${draft.title || 'без названия'}»? Это действие необратимо.`)) onDelete(draft.id as string) }}>Удалить win</button>}<button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить win</button></div></form></Modal>
+
+  const actions = <>
+    <button className={styles.artifactToolButton} type="button" disabled={busy === 'win_rewrite'} onClick={() => void runAi()}>{busy === 'win_rewrite' ? 'Усиливаем…' : '✦ Усилить'}</button>
+    <button className={styles.artifactSaveButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Сохранить</button>
+  </>
+
+  return <ArtifactEditorShell label="Win" onClose={onClose} actions={actions}>
+    {draft.sourceContext && <div className={styles.artifactSourceLine}><span>Из идеи</span><p>{draft.sourceContext}</p></div>}
+
+    <div className={styles.artifactTextFields}>
+      <input className={styles.artifactTitleEditor} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Что произошло?" aria-label="Что произошло" autoFocus required />
+      <textarea className={styles.artifactMainEditor} value={draft.impact} onChange={(event) => setDraft({ ...draft, impact: event.target.value })} placeholder="Почему это важно?" aria-label="Почему это важно" />
+      <textarea className={styles.artifactMainEditor} value={draft.evidence} onChange={(event) => setDraft({ ...draft, evidence: event.target.value })} placeholder="Чем это подтверждается?" aria-label="Чем это подтверждается" />
+    </div>
+
+    {error && <p className={styles.aiError}>{error}</p>}
+    {guidance && <AiGuidancePanel guidance={guidance} compact onApplyRewrite={guidance.rewrite ? () => setDraft({ ...draft, ...(guidance.rewrite ?? {}) }) : undefined} />}
+
+    <details className={styles.artifactDetails}>
+      <summary>Детали</summary>
+      <div className={styles.artifactDetailsContent}>
+        <div className={styles.artifactMiniGrid}>
+          <label>Изменение в цифрах<input value={draft.metrics} onChange={(event) => setDraft({ ...draft, metrics: event.target.value })} placeholder="Только реальные значения" /></label>
+          <label>Кто подтвердил<input value={draft.confirmedBy} onChange={(event) => setDraft({ ...draft, confirmedBy: event.target.value })} placeholder="Если это было" /></label>
+          <label>Дата<input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label>
+          <label className={styles.artifactCheckbox}><input type="checkbox" checked={draft.reportReady} onChange={(event) => setDraft({ ...draft, reportReady: event.target.checked })} /><span>Предлагать для отчётов</span></label>
+        </div>
+
+        <section className={styles.artifactSubsection}>
+          <strong>Компетенции</strong>
+          <div className={styles.choiceChips}>{competencies.map((competency) => <button type="button" key={competency.id} className={winSelectedCompetencies.includes(competency.id) ? styles.choiceActive : ''} onClick={() => setDraft({ ...draft, competencyIds: draft.competencyIds.includes(competency.id) ? draft.competencyIds.filter((item) => item !== competency.id) : [...winSelectedCompetencies, competency.id] })}>{competency.shortTitle}</button>)}</div>
+        </section>
+
+        {gaps.length > 0 && <section className={styles.artifactHint}><span>Что можно усилить</span><ul>{gaps.map((item) => <li key={item}>{item}</li>)}</ul></section>}
+
+        {(winCurrentExpectations.length > 0 || winNextExpectations.length > 0) && <section className={styles.artifactHint}>
+          <span>Шкала компетенций</span>
+          {winCurrentExpectations.length > 0 && <details><summary>Ожидания текущего уровня</summary><ul>{winCurrentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}
+          {winTargetLevel && winNextExpectations.length > 0 && <details><summary>Как усилить до «{levelLabels[winTargetLevel]}»</summary><ul>{winNextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}
+        </section>}
+
+        {draft.id && <button className={styles.artifactDeleteButton} type="button" onClick={() => { if (window.confirm(`Удалить win «${draft.title || 'без названия'}»? Это действие необратимо.`)) onDelete(draft.id as string) }}>Удалить win</button>}
+      </div>
+    </details>
+  </ArtifactEditorShell>
 }
 
 function AiGuidancePanel({ guidance, compact = false, onSaveNextStep, onApplyRewrite }: { guidance: AiResponse; compact?: boolean; onSaveNextStep?: () => void; onApplyRewrite?: () => void }) {
@@ -966,6 +1015,20 @@ function useDialogBehavior(onClose: () => void) {
 function Modal({ title, subtitle, onClose, children, wide = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   useDialogBehavior(onClose)
   return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={`${styles.compactCard} ${wide ? styles.modalWide : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className={styles.modalHeader}><div><span className={styles.eyebrow}>Эскада</span><h2 id="modal-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" aria-label="Закрыть" onClick={onClose}>×</button></div><div className={styles.compactCardBody}>{children}</div></section></div>
+}
+
+function ArtifactEditorShell({ label, meta, onClose, children, actions }: { label: string; meta?: ReactNode; onClose: () => void; children: ReactNode; actions: ReactNode }) {
+  useDialogBehavior(onClose)
+  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
+    <section className={`${styles.compactCard} ${styles.artifactEditorCard}`} role="dialog" aria-modal="true" aria-label={label}>
+      <header className={styles.artifactEditorHeader}>
+        <div className={styles.artifactEditorIdentity}><strong>{label}</strong>{meta}</div>
+        <button className={styles.artifactEditorClose} type="button" aria-label="Закрыть" onClick={onClose}>×</button>
+      </header>
+      <div className={styles.artifactEditorBody}>{children}</div>
+      <footer className={styles.artifactEditorFooter}>{actions}</footer>
+    </section>
+  </div>
 }
 
 function Onboarding({ initial, onComplete, onDemo }: { initial: Profile; onComplete: (profile: Profile) => void; onDemo: () => void }) {
