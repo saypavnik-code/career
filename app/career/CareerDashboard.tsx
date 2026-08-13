@@ -884,7 +884,7 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, canArchive, onClo
     <div className={styles.artifactFooterRight}>
       {draft.status === 'archived' && <button className={styles.artifactToolButton} type="button" onClick={() => { const saved = onSave(draft, false); onRestore(saved.id) }}>Вернуть</button>}
       {!isTerminal && <button className={styles.artifactToolButton} type="button" disabled={!draft.title.trim()} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Win!</button>}
-      <button className={styles.artifactSaveButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Сохранить</button>
+      <button className={styles.artifactSaveButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Готово</button>
     </div>
   </>
 
@@ -946,7 +946,7 @@ function WinModal({ draft: initial, profile, busy, error, onClose, onSave, onDel
 
   const actions = <>
     <button className={styles.artifactToolButton} type="button" disabled={busy === 'win_rewrite'} onClick={() => void runAi()}>{busy === 'win_rewrite' ? 'Усиливаем…' : '✦ Усилить'}</button>
-    <button className={styles.artifactSaveButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Сохранить</button>
+    <button className={styles.artifactSaveButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Готово</button>
   </>
 
   return <ArtifactEditorShell label="Win" onClose={onClose} actions={actions}>
@@ -1019,7 +1019,7 @@ function Modal({ title, subtitle, onClose, children, wide = false }: { title: st
 
 function ArtifactEditorShell({ label, meta, onClose, children, actions }: { label: string; meta?: ReactNode; onClose: () => void; children: ReactNode; actions: ReactNode }) {
   useDialogBehavior(onClose)
-  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
+  return <div className={`${styles.modalBackdrop} ${styles.artifactEditorBackdrop}`} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
     <section className={`${styles.compactCard} ${styles.artifactEditorCard}`} role="dialog" aria-modal="true" aria-label={label}>
       <header className={styles.artifactEditorHeader}>
         <div className={styles.artifactEditorIdentity}><strong>{label}</strong>{meta}</div>

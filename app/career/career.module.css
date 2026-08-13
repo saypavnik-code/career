@@ -1518,3 +1518,353 @@
   .artifactSaveButton { flex: 1; }
   .artifactToolButton { padding-inline: 9px; }
 }
+
+/* escada-native-sheet-polish-v28: content-first SaaS sheet inspired by modern macOS editing patterns. */
+.artifactEditorBackdrop {
+  padding: clamp(18px, 4vw, 42px);
+  background: color-mix(in srgb, var(--navy) 14%, transparent);
+  backdrop-filter: blur(8px) saturate(1.02);
+  -webkit-backdrop-filter: blur(8px) saturate(1.02);
+}
+
+.artifactEditorCard {
+  --editor-surface: color-mix(in srgb, var(--panel) 96%, transparent);
+  --editor-soft: color-mix(in srgb, var(--soft) 82%, var(--panel));
+  --editor-line: color-mix(in srgb, var(--line) 72%, transparent);
+  width: min(610px, calc(100vw - 36px));
+  max-height: min(780px, calc(100dvh - 36px));
+  border: 1px solid var(--editor-line);
+  border-radius: 28px;
+  background: var(--editor-surface);
+  box-shadow:
+    0 30px 90px color-mix(in srgb, var(--navy) 16%, transparent),
+    0 4px 18px color-mix(in srgb, var(--navy) 8%, transparent);
+  backdrop-filter: blur(38px) saturate(1.12);
+  -webkit-backdrop-filter: blur(38px) saturate(1.12);
+  overflow: hidden;
+}
+
+.artifactEditorHeader {
+  min-height: 48px;
+  padding: 8px 10px 4px 18px;
+  border-bottom: 0;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.artifactEditorIdentity { gap: 9px; }
+.artifactEditorIdentity > strong {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.artifactStatusSelect {
+  min-height: 30px;
+  max-width: 180px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--editor-soft);
+  color: var(--muted);
+  padding: 5px 28px 5px 10px;
+  font-size: 10px;
+  font-weight: 750;
+  box-shadow: inset 0 0 0 1px var(--editor-line);
+}
+.artifactStatusSelect:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.artifactEditorClose {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 999px;
+  background: var(--editor-soft);
+  color: var(--muted);
+  font-size: 17px;
+  font-weight: 500;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+.artifactEditorClose:hover {
+  background: var(--soft);
+  color: var(--ink);
+  transform: scale(1.03);
+}
+
+.artifactEditorBody {
+  padding: 12px 24px 10px;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.artifactTextFields {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.artifactTextFields:focus-within { border-color: transparent; }
+.artifactTextFields > :not(:first-child) { border-top: 0; }
+
+.artifactTitleEditor,
+.artifactMainEditor {
+  background: transparent;
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+.artifactTitleEditor {
+  min-height: 48px;
+  padding: 6px 4px 12px;
+  border-bottom: 1px solid var(--editor-line);
+  font-size: 23px;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+.artifactMainEditor {
+  min-height: 82px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--editor-line);
+  resize: none;
+  font-size: 14px;
+  line-height: 1.58;
+}
+.artifactMainEditor + .artifactMainEditor { min-height: 76px; }
+.artifactTextFields > :last-child { border-bottom: 0; }
+.artifactTitleEditor:focus,
+.artifactMainEditor:focus {
+  background: color-mix(in srgb, var(--soft) 46%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--soft) 46%, transparent);
+}
+.artifactTitleEditor::placeholder,
+.artifactMainEditor::placeholder {
+  color: var(--muted);
+  opacity: .58;
+}
+@supports (field-sizing: content) {
+  .artifactMainEditor {
+    field-sizing: content;
+    min-height: 76px;
+    max-height: 240px;
+  }
+}
+
+.artifactSourceLine {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  padding: 0 4px 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.artifactSourceLine span {
+  color: var(--muted);
+  font-weight: 750;
+}
+.artifactSourceLine p { line-height: 1.5; }
+
+.artifactDetails { margin-top: 2px; }
+.artifactDetails > summary {
+  min-height: 32px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 140ms ease, color 140ms ease;
+}
+.artifactDetails > summary::after {
+  content: '›';
+  width: 14px;
+  height: 14px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: 0;
+  transition: transform 160ms ease;
+}
+.artifactDetails[open] > summary::after { transform: rotate(90deg); }
+.artifactDetails > summary:hover,
+.artifactDetails[open] > summary {
+  background: var(--editor-soft);
+  color: var(--ink);
+}
+.artifactDetailsContent {
+  margin-top: 8px;
+  padding: 14px;
+  border-top: 0;
+  border-radius: 16px;
+  background: var(--editor-soft);
+  gap: 14px;
+}
+.artifactDetailsContent > * + * {
+  border-top: 1px solid var(--editor-line);
+  padding-top: 14px;
+}
+.artifactSubsection { gap: 8px; }
+.artifactSubsection > strong {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+.artifactHint {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  gap: 6px;
+}
+.artifactHint > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .06em;
+}
+.artifactHint > strong { font-size: 13px; font-weight: 650; }
+.artifactHint p,
+.artifactHint ul,
+.artifactHint details summary { font-size: 10px; }
+
+.artifactMiniGrid { gap: 9px; }
+.artifactMiniGrid label { font-size: 9px; font-weight: 700; }
+.artifactMiniGrid input[type="text"],
+.artifactMiniGrid input[type="date"],
+.artifactMiniGrid label > input:not([type="checkbox"]),
+.artifactEditorCard .addInline input {
+  min-height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--editor-line);
+  padding: 8px 10px;
+}
+.artifactMiniGrid input:focus,
+.artifactEditorCard .addInline input:focus {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.artifactCheckbox {
+  padding-top: 16px;
+  gap: 8px !important;
+}
+.artifactCheckbox input[type="checkbox"] {
+  appearance: none;
+  width: 30px;
+  height: 18px;
+  margin: 0;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 9px 9px, var(--panel) 0 6px, transparent 7px),
+    var(--line);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.artifactCheckbox input[type="checkbox"]:checked {
+  background:
+    radial-gradient(circle at 21px 9px, var(--panel) 0 6px, transparent 7px),
+    var(--accent);
+}
+.artifactCheckbox span { font-size: 10px; font-weight: 700; }
+
+.artifactEditorCard .choiceChips { gap: 5px; }
+.artifactEditorCard .choiceChips button {
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 9px;
+  box-shadow: none;
+}
+.artifactEditorCard .addInline { gap: 6px; }
+.artifactEditorCard .addInline button {
+  min-height: 36px;
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: var(--ink);
+  font-size: 9px;
+  box-shadow: none;
+}
+.artifactEditorCard .aiResult {
+  border: 0;
+  border-radius: 16px;
+  background: var(--editor-soft);
+  box-shadow: none;
+}
+.artifactDeleteButton {
+  padding: 7px 2px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.artifactEditorFooter {
+  min-height: 50px;
+  border-top: 0;
+  padding: 6px 10px 10px 18px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.artifactFooterRight { gap: 4px; }
+.artifactToolButton,
+.artifactSaveButton {
+  min-height: 32px;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: 10px;
+  font-weight: 750;
+  box-shadow: none;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+.artifactToolButton {
+  background: transparent;
+  color: var(--muted);
+}
+.artifactToolButton:hover {
+  background: var(--editor-soft);
+  color: var(--ink);
+}
+.artifactSaveButton {
+  background: var(--accent);
+  color: var(--panel);
+}
+.artifactSaveButton:hover {
+  background: var(--accent-dark);
+  transform: translateY(-1px);
+}
+.artifactSaveButton:active { transform: translateY(0); }
+
+@media (max-width: 780px) {
+  .artifactEditorBackdrop {
+    padding: 0;
+    background: color-mix(in srgb, var(--navy) 18%, transparent);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+  }
+  .artifactEditorCard {
+    width: 100%;
+    max-height: 94dvh;
+    border-radius: 26px 26px 0 0;
+    border-bottom: 0;
+  }
+  .artifactEditorHeader { min-height: 48px; padding: 8px 10px 4px 18px; }
+  .artifactEditorBody { padding: 10px 18px 8px; }
+  .artifactTitleEditor { font-size: 22px; }
+  .artifactMainEditor { min-height: 90px; }
+  .artifactEditorFooter {
+    min-height: 52px;
+    padding: 6px 10px calc(8px + env(safe-area-inset-bottom)) 18px;
+  }
+  .artifactMiniGrid { grid-template-columns: 1fr; }
+  .artifactCheckbox { padding-top: 4px; min-height: 36px; }
+}
+
+@media (max-width: 430px) {
+  .artifactEditorIdentity { gap: 6px; }
+  .artifactStatusSelect { max-width: 142px; }
+  .artifactEditorBody { padding-inline: 16px; }
+  .artifactEditorFooter { gap: 5px; padding-left: 12px; }
+  .artifactFooterRight { flex: 1; }
+  .artifactSaveButton { min-width: 72px; margin-left: auto; }
+  .artifactToolButton { padding-inline: 8px; }
+}
