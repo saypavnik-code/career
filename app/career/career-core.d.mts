@@ -15,6 +15,7 @@ export function selectWinsForPeriod(wins: unknown[], start: string, end: string)
 export function buildReportMarkdown(args: Record<string, unknown>): string
 export function pluralizeRu(value: number, one: string, few: string, many: string): string
 export function computeProgress(state: Record<string, unknown>, competencies: unknown[]): Record<string, unknown>
+export function isIdeaReadyForWin(idea: Record<string, unknown>, wins: Record<string, unknown>[]): boolean
 export function buildCoachNotes(state: Record<string, unknown>, competencies: unknown[], now?: Date): unknown[]
 export function createDefaultState(now?: Date): Record<string, unknown>
 export function demoState(now?: Date): Record<string, unknown>

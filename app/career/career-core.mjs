@@ -287,6 +287,10 @@ export function computeProgress(state, competencies) {
   }
 }
 
+export function isIdeaReadyForWin(idea, wins) {
+  return idea.status === 'outcomes' && !wins.some((win) => win.sourceIdeaId === idea.id)
+}
+
 export function buildCoachNotes(state, competencies, now = new Date()) {
   const ideas = Array.isArray(state?.ideas) ? state.ideas : []
   const wins = Array.isArray(state?.wins) ? state.wins : []
@@ -305,12 +309,18 @@ export function buildCoachNotes(state, competencies, now = new Date()) {
     })
   }
 
-  const readyIdea = ideas.find((idea) => idea.status !== 'won' && (idea.workItems ?? []).filter((item) => item.status === 'done').length >= 2)
+  // 'outcomes' is a status the user sets themselves (dropdown or drag on
+  // the kanban) — a far more reliable "work is done" signal than the old
+  // workItems-based check, which stopped having any data to check after
+  // v15 removed the internal work-item kanban from the UI.
+  const readyIdea = ideas.find((idea) => (
+    idea.status === 'outcomes' && !wins.some((win) => win.sourceIdeaId === idea.id)
+  ))
   if (readyIdea) {
     notes.push({
       kind: 'win',
       title: 'Похоже, здесь уже формируется win',
-      text: `В идее «${readyIdea.title}» завершено несколько этапов работы. Проверьте, появилось ли изменение, которое стоит зафиксировать.`,
+      text: `Идея «${readyIdea.title}» отмечена как «Итоги», но пока не стала win. Проверьте, появилось ли изменение, которое стоит зафиксировать.`,
       ideaId: readyIdea.id,
     })
   }

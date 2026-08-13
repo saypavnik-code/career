@@ -22,6 +22,7 @@ import {
   createId,
   createNote,
   deleteWin as deleteWinFromState,
+  isIdeaReadyForWin,
   updateNote as updateNoteFromState,
   demoState,
   inferLevelSignal,
@@ -502,7 +503,7 @@ export default function CareerDashboard() {
         </header>
 
         {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
-        {view === 'ideas' && <IdeasView ideas={state.ideas} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} />}
+        {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
         {view === 'wins' && <WinsView wins={state.wins} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} />}
@@ -592,11 +593,13 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
   </Modal>
 }
 
-function IdeasView({ ideas, onNew, onOpen, onStatusChange }: {
+function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onQuickWin }: {
   ideas: Idea[]
+  wins: Win[]
   onNew: () => void
   onOpen: (idea: Idea) => void
   onStatusChange: (ideaId: string, status: ActiveIdeaStatus) => void
+  onQuickWin: (idea: Idea) => void
 }) {
   const [dragIdeaId, setDragIdeaId] = useState<string | null>(null)
   const kanbanIdeas = ideas.filter((idea) => idea.status !== 'won' && idea.status !== 'archived')
@@ -630,6 +633,12 @@ function IdeasView({ ideas, onNew, onOpen, onStatusChange }: {
                   onDragEnd={() => setDragIdeaId(null)}
                 >
                   <h4>{idea.title}</h4>
+                  {isIdeaReadyForWin(idea as unknown as Record<string, unknown>, wins as unknown as Record<string, unknown>[]) && (
+                    <div className={styles.readyForWinRow}>
+                      <span className={styles.readyForWinBadge}>Готова стать win</span>
+                      <button type="button" className={styles.textButton} onClick={(event) => { event.stopPropagation(); onQuickWin(idea) }}>Win!</button>
+                    </div>
+                  )}
                   <div className={styles.cardActions}>
                     <select
                       className={styles.kanbanCardStatusSelect}
@@ -758,7 +767,7 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
   function addEvidence() { const value = evidenceText.trim(); if (!value) return; setDraft((current) => ({ ...current, evidenceNotes: [...current.evidenceNotes, { id: createId('evidence'), text: value, createdAt: new Date().toISOString() }] })); setEvidenceText('') }
   function toggleCompetency(id: string) { setDraft((current) => ({ ...current, competencyIds: current.competencyIds.includes(id) ? current.competencyIds.filter((item) => item !== id) : [...current.competencyIds, id] })) }
 
-  return <div className={styles.workspaceBackdrop}><section className={`${styles.ideaWorkspace} ${styles.ideaWorkspaceSimple}`}>
+  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={styles.compactCard} role="dialog" aria-modal="true">
     <header className={styles.workspaceHeader}>
       <div className={styles.ideaActionRow}>
         <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as ActiveIdeaStatus })} aria-label="Статус идеи">
@@ -768,7 +777,7 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
       </div>
       <button type="button" className={styles.workspaceCloseButton} aria-label="Закрыть" onClick={onClose}>×</button>
     </header>
-    <div className={styles.ideaWorkspaceBody}>
+    <div className={styles.compactCardBody}>
       <section className={styles.workspaceSectionSpacious}>
         <input className={styles.ideaTitleInput} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Название идеи" autoFocus />
         <textarea className={styles.largeTextarea} value={draft.details} onChange={(event) => setDraft({ ...draft, details: event.target.value })} placeholder="В чём идея и почему она может быть полезна?" />
@@ -825,7 +834,7 @@ function ProfileModal({ profile: initial, onClose, onSave, onExport, onImport }:
 
 function Modal({ title, subtitle, onClose, children }: { title: string; subtitle: string; onClose: () => void; children: ReactNode }) {
   useEffect(() => { const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler) }, [onClose])
-  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className={styles.modalHeader}><div><span className={styles.eyebrow}>Эскада</span><h2 id="modal-title">{title}</h2><p>{subtitle}</p></div><button type="button" aria-label="Закрыть" onClick={onClose}>×</button></div>{children}</section></div>
+  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={styles.compactCard} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className={styles.modalHeader}><div><span className={styles.eyebrow}>Эскада</span><h2 id="modal-title">{title}</h2><p>{subtitle}</p></div><button type="button" aria-label="Закрыть" onClick={onClose}>×</button></div><div className={styles.compactCardBody}>{children}</div></section></div>
 }
 
 function Onboarding({ initial, onComplete, onDemo }: { initial: Profile; onComplete: (profile: Profile) => void; onDemo: () => void }) {

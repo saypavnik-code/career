@@ -250,11 +250,24 @@
 .choiceChips button { border: 1px solid var(--line); background: white; border-radius: 999px; padding: 7px 9px; color: var(--muted); font-size: 9px; font-weight: 750; }
 .choiceChips .choiceActive { background: var(--navy); border-color: var(--navy); color: white; }
 .modalBackdrop, .onboardingBackdrop { position: fixed; inset: 0; z-index: 30; background: rgba(10,11,19,0.72); backdrop-filter: blur(12px); display: grid; place-items: center; padding: 20px; }
-.modal { width: min(760px, 100%); max-height: 92vh; overflow: auto; border-radius: 26px; background: #f8f9fc; padding: 26px; box-shadow: 0 34px 100px rgba(0,0,0,0.32); }
-.modalHeader { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 20px; }
-.modalHeader h2 { margin: 5px 0 6px; font-size: 30px; letter-spacing: -0.045em; }
-.modalHeader p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.modalHeader > button { border: 0; width: 36px; height: 36px; border-radius: 12px; background: white; font-size: 22px; }
+/* escada-compact-cards-v23: one small, modern container for every card
+   (idea, win, note, new idea, profile) instead of near-fullscreen modals. */
+.compactCard {
+  width: min(440px, 92vw);
+  max-height: min(640px, 82vh);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  border-radius: 22px;
+  background: #f8f9fc;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.28);
+  overflow: hidden;
+}
+.compactCardBody { overflow: auto; padding: 18px 20px 20px; display: grid; gap: 16px; }
+.modalHeader { display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); padding: 16px 18px 14px; background: rgba(255,255,255,0.82); }
+.modalHeader h2 { margin: 3px 0 4px; font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
+.modalHeader p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; opacity: 0.72; }
+.modalHeader .eyebrow { opacity: 0.6; }
+.modalHeader > button { border: 0; width: 30px; height: 30px; border-radius: 10px; background: white; font-size: 18px; flex-shrink: 0; }
 .modalForm { display: grid; gap: 14px; }
 .modalActions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 4px; }
 .onboarding { width: min(1000px, 100%); max-height: 94vh; overflow: auto; display: grid; grid-template-columns: 1fr 1fr; background: white; border-radius: 30px; overflow: hidden; box-shadow: 0 34px 100px rgba(0,0,0,0.36); }
@@ -377,10 +390,9 @@
 .signalObserved span, .signalUnobserved span { font-weight: 900; }
 .signalObserved p, .signalUnobserved p { margin: 0; font-size: 10px; line-height: 1.45; }
 .workspaceBackdrop { position: fixed; inset: 0; z-index: 45; background: rgba(10,11,19,0.75); backdrop-filter: blur(14px); padding: 18px; display: grid; place-items: center; }
-.ideaWorkspace { width: min(1320px, 100%); height: min(94vh, 980px); background: #f7f8fc; border-radius: 28px; overflow: hidden; box-shadow: 0 34px 100px rgba(0,0,0,0.34); display: grid; grid-template-rows: auto 1fr auto; }
-.workspaceHeader { padding: 22px 26px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.82); display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
-.workspaceHeader h2 { margin: 5px 0 10px; font-size: clamp(26px, 4vw, 40px); line-height: 1; letter-spacing: -0.05em; }
-.workspaceHeader > button { border: 0; width: 38px; height: 38px; border-radius: 12px; background: white; font-size: 23px; }
+.workspaceHeader { padding: 14px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.82); display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.workspaceHeader h2 { margin: 3px 0 4px; font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
+.workspaceHeader > button { border: 0; width: 30px; height: 30px; border-radius: 10px; background: white; font-size: 18px; }
 .ideaWorkspaceGrid { overflow: auto; padding: 22px; display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.75fr); gap: 18px; align-items: start; }
 .ideaMainColumn, .ideaSideColumn { display: grid; gap: 16px; min-width: 0; }
 .ideaSideColumn { position: sticky; top: 0; }
@@ -406,9 +418,9 @@
 .notesTimeline article { border-left: 3px solid var(--accent); background: white; border-radius: 0 12px 12px 0; padding: 11px 13px; }
 .notesTimeline span { color: var(--muted); font-size: 8px; }
 .notesTimeline p { margin: 5px 0 0; font-size: 10px; line-height: 1.5; }
-.signalCard { border-radius: 20px; padding: 20px; background: linear-gradient(135deg, #1b1d31, #292c48); color: white; display: grid; gap: 10px; }
+.signalCard { border-radius: 16px; padding: 14px; background: linear-gradient(135deg, #1b1d31, #292c48); color: white; display: grid; gap: 8px; }
 .signalCard .eyebrow { color: #9ea5bb; }
-.signalCard h3 { margin: 0; font-size: 25px; letter-spacing: -0.035em; }
+.signalCard h3 { margin: 0; font-size: 17px; letter-spacing: -0.02em; }
 .signalCard p { margin: 0; color: #c4c9d8; font-size: 11px; line-height: 1.55; }
 .signalCard small { color: var(--lime); font-size: 9px; }
 .signalCard button { background: var(--lime); color: var(--navy); margin-top: 3px; }
@@ -418,7 +430,7 @@
 .behaviorChoices button span { font-weight: 900; color: var(--accent); }
 .behaviorChoices .behaviorActive { background: rgba(215,255,97,0.22); color: #303a15; border-color: rgba(116,148,28,0.22); }
 .behaviorChoices small { color: var(--muted); font-size: 9px; line-height: 1.5; }
-.workspaceFooter { padding: 14px 22px; border-top: 1px solid var(--line); background: white; display: flex; justify-content: space-between; gap: 12px; }
+.workspaceFooter { padding: 12px 16px; border-top: 1px solid var(--line); background: white; display: flex; justify-content: space-between; gap: 8px; }
 .workspaceFooter > div { display: flex; gap: 8px; }
 
 @media (max-width: 1100px) {
@@ -476,7 +488,7 @@
 .evidenceList article { display: grid; grid-template-columns: auto 1fr; gap: 10px; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: #fafbfe; }
 .evidenceList article span { color: var(--purple); }
 .evidenceList article p { margin: 0; color: var(--ink); line-height: 1.45; }
-.aiPanel { border-radius: 24px; padding: 20px; background: linear-gradient(145deg, rgba(110,92,246,.12), rgba(215,255,97,.16)); border: 1px solid rgba(110,92,246,.18); }
+.aiPanel { border-radius: 16px; padding: 14px; background: linear-gradient(145deg, rgba(110,92,246,.12), rgba(215,255,97,.16)); border: 1px solid rgba(110,92,246,.18); }
 .aiPanel h3 { margin: 6px 0 8px; }
 .aiPanel p { margin: 0 0 16px; color: var(--muted); line-height: 1.55; }
 .aiError { margin: 10px 0 0; color: #a43c3c; font-size: 13px; font-weight: 700; }
@@ -484,7 +496,7 @@
 .aiResultCompact { border-radius: 22px; padding: 18px; }
 .aiResult .eyebrow, .aiResult .sectionHeader p { color: rgba(255,255,255,.62); }
 .aiResult h3 { color: white; }
-.aiResultGrid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+.aiResultGrid { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .aiResultGrid > div { border: 1px solid rgba(255,255,255,.1); border-radius: 18px; background: rgba(255,255,255,.055); padding: 16px; }
 .aiResultGrid strong { display: block; color: var(--lime); margin-bottom: 8px; }
 .aiResultGrid p { margin: 7px 0 0; color: rgba(255,255,255,.78); line-height: 1.52; }
@@ -796,8 +808,6 @@
 }
 
 /* escada-idea-card-v15: simplified single-column workspace (roadmap Phase 4) */
-.ideaWorkspaceSimple { grid-template-rows: auto 1fr auto; }
-.ideaWorkspaceSimple .workspaceHeader { align-items: center; }
 .ideaActionRow {
   display: flex;
   align-items: stretch;
@@ -825,21 +835,13 @@
   margin-left: 16px;
   flex-shrink: 0;
 }
-.ideaWorkspaceBody {
-  overflow: auto;
-  padding: 28px 32px 32px;
-  display: grid;
-  gap: 28px;
-  max-width: 720px;
-  margin: 0 auto;
-  width: 100%;
-}
-.workspaceSectionSpacious { display: grid; gap: 16px; }
+
+.workspaceSectionSpacious { display: grid; gap: 10px; }
 .ideaTitleInput {
   border: 0;
   background: transparent;
-  font-size: clamp(24px, 3.4vw, 34px);
-  font-weight: 850;
+  font-size: 19px;
+  font-weight: 800;
   letter-spacing: -0.03em;
   color: var(--ink);
   padding: 4px 0;
@@ -861,7 +863,7 @@
 .secondarySection[open] summary { margin-bottom: 14px; color: var(--ink); }
 
 @media (max-width: 780px) {
-  .ideaWorkspaceBody { padding: 20px 18px 24px; gap: 22px; }
+  .compactCard { width: 94vw; max-height: 86vh; }
   .ideaActionRow select { min-width: 0; }
 }
 
@@ -895,3 +897,22 @@
   display: flex;
 }
 .newIdeaWinRow .primaryButton { width: 100%; }
+
+/* escada-funnel-v23: "готова стать win" signal directly on the kanban card */
+.readyForWinRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.readyForWinBadge {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-dark);
+  background: rgba(110,92,246,0.1);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+.readyForWinRow .textButton { font-size: 11px; font-weight: 800; padding: 0; }

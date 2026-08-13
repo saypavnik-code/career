@@ -6,6 +6,8 @@ import {
   createNote,
   deleteWin,
   deriveNoteTitle,
+  buildCoachNotes,
+  isIdeaReadyForWin,
   migrateIdeaStatus,
   migrateState,
   noteToIdea,
@@ -432,4 +434,32 @@ test('generated report drafts contain no Markdown syntax (plain text only)', () 
     artifact: { reportType: 'Promotion case', periodStart: '2026-01-01', periodEnd: '2026-06-30', wins: [{ title: 'X', impact: 'Y', evidence: 'Z', competencyIds: ['results-proactivity'], competencyTitle: 'Ориентация на результат' }], ideas: [] },
   })
   assert.doesNotMatch(promotion.draftMarkdown, markdownPattern)
+})
+
+
+test('isIdeaReadyForWin is true only for an "outcomes" idea with no linked win', () => {
+  const outcomesIdea = { id: 'idea-1', status: 'outcomes' }
+  const inProgressIdea = { id: 'idea-2', status: 'in_progress' }
+  const alreadyWonIdea = { id: 'idea-3', status: 'outcomes' }
+  const wins = [{ id: 'win-1', sourceIdeaId: 'idea-3' }]
+
+  assert.equal(isIdeaReadyForWin(outcomesIdea, wins), true)
+  assert.equal(isIdeaReadyForWin(inProgressIdea, wins), false)
+  assert.equal(isIdeaReadyForWin(alreadyWonIdea, wins), false)
+})
+
+test('buildCoachNotes surfaces a win-ready idea using the outcomes status, not stale workItems data', () => {
+  const state = {
+    profile: { currentLevel: 'senior', reportingRhythm: 'monthly', cycleEnd: '2026-12-31' },
+    notes: [],
+    ideas: [
+      { id: 'idea-1', title: 'Готова к win', status: 'outcomes', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString(), workItems: [] },
+    ],
+    wins: [],
+    reports: [],
+  }
+  const notes = buildCoachNotes(state, [])
+  const winNote = notes.find((note) => note.kind === 'win')
+  assert.ok(winNote, 'a win-kind coach note should be produced for an outcomes-status idea with no linked win')
+  assert.equal(winNote.ideaId, 'idea-1')
 })
