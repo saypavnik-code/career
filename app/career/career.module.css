@@ -916,3 +916,183 @@
   padding: 4px 8px;
 }
 .readyForWinRow .textButton { font-size: 11px; font-weight: 800; padding: 0; }
+
+/* escada-responsive-cjm-polish-v24: responsive August + restrained neo-glass overrides */
+.shell {
+  --surface: var(--panel);
+  --purple: var(--accent);
+  --purple-strong: var(--accent-dark);
+  --shadow: 0 24px 60px var(--line);
+}
+
+.shell :is(button, input, textarea, select, [role="button"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.shell button { touch-action: manipulation; }
+.workspace { width: 100%; max-width: 1640px; margin-inline: auto; }
+.topbar { min-height: 96px; margin-bottom: 28px; }
+.profileChip, .primaryButton, .secondaryButton, .aiMiniButton { min-height: 44px; }
+.quickCapture button { min-height: 48px; }
+.field input, .field select, .dateGrid input, .formGrid input, .formGrid select, .settingsGrid input, .settingsGrid select, .onboarding input, .onboarding select { min-height: 44px; }
+.cardActions button, .cardActions select { min-height: 40px; }
+.choiceChips button { min-height: 36px; padding-inline: 12px; }
+
+.modalBackdrop { padding: clamp(12px, 3vw, 28px); }
+.compactCard {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(760px, calc(100dvh - 32px));
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(24px) saturate(1.08);
+  -webkit-backdrop-filter: blur(24px) saturate(1.08);
+}
+.modalWide { width: min(680px, calc(100vw - 32px)); }
+.ideaDialogCard { width: min(720px, calc(100vw - 32px)); }
+.compactCardBody {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: clamp(18px, 3vw, 26px);
+}
+.modalHeader, .workspaceHeader {
+  padding: 18px 20px;
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.modalHeader > button, .workspaceCloseButton {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 14px;
+}
+.modalActions > button { min-height: 44px; }
+.noteEditor { min-height: clamp(220px, 38dvh, 360px); }
+.largeTextarea { min-height: clamp(150px, 26dvh, 280px) !important; }
+
+.reportTypeGrid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.reportTypeCard, .reportTypeActive { min-height: 76px; }
+.savedReports { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.savedReportCard {
+  min-width: 0;
+  min-height: 92px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 15px;
+  background: var(--panel);
+  color: var(--ink);
+  text-align: left;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.savedReportCard strong { font-size: 12px; overflow-wrap: anywhere; }
+.savedReportCard span, .savedReportCard small { color: var(--muted); font-size: 10px; }
+.savedReportCard small { font-weight: 800; }
+.sourceIdeaPill {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--accent-dark);
+  font-size: 10px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.winBody h3, .winBody p { overflow-wrap: anywhere; }
+
+.kanbanBoard { min-width: 0; }
+.kanbanCard { min-height: 150px; height: auto; }
+.kanbanCardStatusSelect { width: 100%; }
+
+.onboarding {
+  max-height: min(820px, calc(100dvh - 32px));
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+@media (max-width: 1100px) {
+  .workspace { max-width: none; }
+  .minimalWinCard { grid-template-columns: minmax(76px, .18fr) minmax(0, 1fr); }
+  .minimalWinCard > .cardActions { grid-column: 2; margin-top: 0; }
+}
+
+@media (max-width: 780px) {
+  .shell { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+  .workspace { padding: 0 14px 28px; }
+  .topbar { min-height: 78px; margin-bottom: 18px; }
+  .topbar h1 { font-size: clamp(30px, 9vw, 36px); }
+  .profileChip { padding: 6px; border-radius: 14px; }
+  .profileChip > span { width: 38px; height: 38px; }
+
+  .modalBackdrop { place-items: end center; padding: 0; }
+  .compactCard, .modalWide, .ideaDialogCard {
+    width: 100%;
+    max-width: none;
+    max-height: min(90dvh, 780px);
+    border-radius: 28px 28px 0 0;
+    border-bottom: 0;
+  }
+  .ideaDialogCard { max-height: 94dvh; }
+  .compactCardBody { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); scrollbar-gutter: auto; }
+  .modalHeader, .workspaceHeader { padding: 14px 16px; }
+  .workspaceFooter { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .modalActions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .modalActions > button { width: 100%; min-height: 48px; }
+  .modalActions .dangerButton { grid-column: 1 / -1; }
+  .ideaActionRow { min-width: 0; }
+  .ideaActionRow select, .ideaActionRow .primaryButton { min-height: 44px; }
+
+  .mobileNav {
+    left: 8px;
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    border-radius: 20px;
+    padding: 6px;
+  }
+  .mobileNav button { min-height: 50px; }
+  .toast { bottom: calc(82px + env(safe-area-inset-bottom)); }
+
+  .kanbanBoard { grid-auto-columns: min(84vw, 360px); gap: 12px; scroll-padding-inline: 2px; }
+  .kanbanColumnWrap { border-radius: 18px; padding: 12px; }
+  .kanbanCard { min-height: 146px; padding: 16px; }
+  .reportTypeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reportTypeCard, .reportTypeActive { min-height: 70px; }
+  .reportEditorPanel { border-radius: 24px; padding: 20px 16px; }
+  .reportEditorTextarea { min-height: 54dvh; border-radius: 16px; }
+  .savedReports { grid-template-columns: 1fr; }
+
+  .onboardingBackdrop { place-items: end center; padding: 0; }
+  .onboarding {
+    width: 100%;
+    max-height: 96dvh;
+    border-radius: 28px 28px 0 0;
+    border-bottom: 0;
+  }
+  .onboarding form { padding: 26px 20px calc(28px + env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 520px) {
+  .heroCard { padding: 22px 16px; }
+  .heroCopy h2 { font-size: clamp(32px, 11vw, 38px); }
+  .quickThought textarea { min-height: 124px; }
+  .pinBoard { grid-template-columns: 1fr; }
+  .noteCard { min-height: 96px; height: auto; }
+  .pageIntro .buttonRow { width: 100%; }
+  .pageIntro .buttonRow > button { flex: 1 1 100%; }
+  .minimalWinCard { grid-template-columns: 1fr; }
+  .minimalWinCard > .cardActions { grid-column: 1; width: 100%; }
+  .minimalWinCard > .cardActions button { flex: 1 1 0; }
+  .reportTypeGrid { grid-template-columns: 1fr 1fr; }
+  .modalActions { grid-template-columns: 1fr; }
+  .modalActions .dangerButton { grid-column: 1; }
+  .sourceIdeaPill { border-radius: 12px; }
+}

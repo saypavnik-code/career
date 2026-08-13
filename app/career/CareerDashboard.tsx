@@ -15,7 +15,6 @@ import { buildLocalGuidance } from './local-guidance.mjs'
 import {
   PREVIOUS_STORAGE_KEYS,
   STORAGE_KEY,
-  buildCoachNotes,
   captureToWinDraft,
   computeGrowthPath,
   createDefaultState,
@@ -303,7 +302,6 @@ export default function CareerDashboard() {
 
   const activeIdeas = useMemo(() => state.ideas.filter((item) => item.status !== 'won' && item.status !== 'archived'), [state.ideas])
   const winsInPeriod = useMemo(() => selectWinsForPeriod(state.wins, periodStart, periodEnd) as Win[], [state.wins, periodStart, periodEnd])
-  const coachNotes = useMemo(() => buildCoachNotes(state as unknown as Record<string, unknown>, competencies) as Array<{ title: string; text: string; ideaId?: string; winId?: string }>, [state])
   const growthPath = useMemo(() => computeGrowthPath(state as unknown as Record<string, unknown>, competencies) as {
     currentLevel: LevelKey
     nextLevel: LevelKey | null
@@ -361,6 +359,14 @@ export default function CareerDashboard() {
   }
 
   function convertNoteToIdea(note: Note) {
+    if (note.convertedIdeaId) {
+      const existingIdea = state.ideas.find((idea) => idea.id === note.convertedIdeaId)
+      if (existingIdea) {
+        setOpenNote(null)
+        setIdeaDraft(existingIdea)
+        return
+      }
+    }
     const result = noteToIdea(note as unknown as Record<string, unknown>, state.profile.currentLevel) as unknown as { idea: Idea; note: Note }
     updateState((current) => ({
       ...current,
@@ -446,6 +452,17 @@ export default function CareerDashboard() {
     setNotice('Версия отчёта сохранена')
   }
 
+  function openSavedReport(report: Report) {
+    setReportType(report.type)
+    setPeriodStart(report.periodStart)
+    setPeriodEnd(report.periodEnd)
+    setSelectedWinIds(report.winIds ?? [])
+    setSelectedIdeaIds(report.ideaIds ?? [])
+    setReportText(report.content ?? '')
+    setReportGuidance(null)
+    setNotice('Сохранённая версия открыта')
+  }
+
   async function generateReport() {
     const wins = state.wins.filter((item) => selectedWinIds.includes(item.id))
     const ideas = state.ideas.filter((item) => selectedIdeaIds.includes(item.id))
@@ -504,8 +521,8 @@ export default function CareerDashboard() {
 
         {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
         {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
-        {view === 'wins' && <WinsView wins={state.wins} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
-        {view === 'reports' && <ReportsView wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} />}
+        {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
+        {view === 'reports' && <ReportsView wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} />}
       </section>
 
@@ -586,7 +603,7 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
         {guidance.nextStep && <p><strong>Следующий шаг.</strong> {guidance.nextStep}</p>}
       </div>}
       <div className={styles.modalActions}>
-        <button className={styles.primaryButton} type="button" onClick={() => onConvert(note)}>Это идея!</button>
+        <button className={styles.primaryButton} type="button" onClick={() => onConvert(note)}>{note.convertedIdeaId ? 'Открыть идею' : 'Это идея!'}</button>
         <button className={styles.aiMiniButton} type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Думаем…' : '✦ Улучшить'}</button>
       </div>
     </div>
@@ -662,11 +679,32 @@ function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onQuickWin }: {
   </div>
 }
 
-function WinsView({ wins, onNew, onOpen, onDelete, onReports }: { wins: Win[]; onNew: () => void; onOpen: (win: Win) => void; onDelete: (winId: string) => void; onReports: () => void }) {
-  return <div className={styles.pageStack}><section className={styles.pageIntro}><div><span className={styles.eyebrow}>Доказательства роста</span><p>Что произошло, почему это важно и чем подтверждается.</p></div><div className={styles.buttonRow}><button className={styles.secondaryButton} type="button" onClick={onReports}>Собрать отчёт</button><button className={styles.primaryButton} type="button" onClick={onNew}>Добавить win</button></div></section><section className={styles.winList}>{wins.length ? wins.map((win) => { const gaps = winGapHints(win as unknown as Record<string, unknown>); return <article className={`${styles.winCard} ${styles.minimalWinCard}`} key={win.id}><div className={styles.winDate}>{formatDate(win.date)}</div><div className={styles.winBody}><h3>{win.title}</h3><p>{win.impact || 'Значимость результата пока не описана'}</p><div className={styles.evidenceStats}><span className={gaps.length ? styles.warningDot : styles.successDot}>{gaps.length ? `${gaps.length} пункта стоит усилить` : 'Доказательство заполнено'}</span></div></div><div className={styles.cardActions}><button type="button" className={styles.secondaryButton} onClick={() => onOpen(win)}>Открыть</button><button type="button" className={`${styles.textButton} ${styles.dangerText}`} onClick={() => { if (window.confirm(`Удалить win «${win.title}»? Это действие необратимо.`)) onDelete(win.id) }}>Удалить</button></div></article> }) : <EmptyState title="Wins пока нет" text="Зафиксируйте изменение, результат и доказательство." action="Добавить win" onAction={onNew} />}</section></div>
+function WinsView({ wins, ideas, onNew, onOpen, onDelete, onReports }: { wins: Win[]; ideas: Idea[]; onNew: () => void; onOpen: (win: Win) => void; onDelete: (winId: string) => void; onReports: () => void }) {
+  return <div className={styles.pageStack}>
+    <section className={styles.pageIntro}>
+      <div><span className={styles.eyebrow}>Доказательства роста</span><p>Что произошло, почему это важно и чем подтверждается.</p></div>
+      <div className={styles.buttonRow}><button className={styles.secondaryButton} type="button" onClick={onReports}>Собрать отчёт</button><button className={styles.primaryButton} type="button" onClick={onNew}>Добавить win</button></div>
+    </section>
+    <section className={styles.winList}>
+      {wins.length ? wins.map((win) => {
+        const gaps = winGapHints(win as unknown as Record<string, unknown>)
+        const sourceIdea = win.sourceIdeaId ? ideas.find((idea) => idea.id === win.sourceIdeaId) : null
+        return <article className={`${styles.winCard} ${styles.minimalWinCard}`} key={win.id}>
+          <div className={styles.winDate}>{formatDate(win.date)}</div>
+          <div className={styles.winBody}>
+            <h3>{win.title}</h3>
+            {sourceIdea && <span className={styles.sourceIdeaPill}>Из идеи · {sourceIdea.title}</span>}
+            <p>{win.impact || 'Значимость результата пока не описана'}</p>
+            <div className={styles.evidenceStats}><span className={gaps.length ? styles.warningDot : styles.successDot}>{gaps.length ? `${gaps.length} пункта стоит усилить` : 'Доказательство заполнено'}</span></div>
+          </div>
+          <div className={styles.cardActions}><button type="button" className={styles.secondaryButton} onClick={() => onOpen(win)}>Открыть</button><button type="button" className={`${styles.textButton} ${styles.dangerText}`} onClick={() => { if (window.confirm(`Удалить win «${win.title}»? Это действие необратимо.`)) onDelete(win.id) }}>Удалить</button></div>
+        </article>
+      }) : <EmptyState title="Wins пока нет" text="Зафиксируйте изменение, результат и доказательство." action="Добавить win" onAction={onNew} />}
+    </section>
+  </div>
 }
 
-function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart, periodEnd, reportType, reportText, reports, guidance, busy, error, onPeriodStart, onPeriodEnd, onReportType, onToggleWin, onToggleIdea, onSelectAll, onGenerate, onReview, onReportText, onSave }: {
+function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart, periodEnd, reportType, reportText, reports, guidance, busy, error, onPeriodStart, onPeriodEnd, onReportType, onToggleWin, onToggleIdea, onSelectAll, onGenerate, onReview, onReportText, onSave, onOpenReport }: {
   wins: Win[]
   ideas: Idea[]
   selectedWinIds: string[]
@@ -689,6 +727,7 @@ function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart
   onReview: () => Promise<void>
   onReportText: (value: string) => void
   onSave: () => void
+  onOpenReport: (report: Report) => void
 }) {
   return <div className={styles.pageStack}>
     <section className={styles.pageIntro}>
@@ -713,7 +752,7 @@ function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart
     </section>}
 
     {guidance && <AiGuidancePanel guidance={guidance} />}
-    {reports.length > 0 && <section className={styles.savedReports}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>История</span><h3>Сохранённые версии</h3></div></div>{reports.slice(0, 5).map((report) => <article key={report.id}><strong>{report.title}</strong><span>{formatDate(report.createdAt.slice(0, 10))}</span></article>)}</section>}
+    {reports.length > 0 && <section className={styles.savedReports}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>История</span><h3>Сохранённые версии</h3></div></div>{reports.slice(0, 5).map((report) => <button type="button" className={styles.savedReportCard} key={report.id} onClick={() => onOpenReport(report)}><strong>{report.title}</strong><span>{formatDate(report.createdAt.slice(0, 10))}</span><small>Открыть версию</small></button>)}</section>}
   </div>
 }
 
@@ -753,6 +792,7 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
   const [noteText, setNoteText] = useState('')
   const [evidenceText, setEvidenceText] = useState('')
   const [guidance, setGuidance] = useState<AiResponse | null>(null)
+  useDialogBehavior(onClose)
   const text = [draft.title, draft.details, draft.nextStep, ...draft.workItems.map((item) => item.title), ...draft.notes.map((item) => item.text)].join(' ')
   const suggestedCompetencies = suggestCompetencyIds(text, competencies, competencyKeywords)
   const inferred = inferLevelSignal(text, profile.currentLevel) as { level: LevelKey; reason: string }
@@ -767,7 +807,7 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
   function addEvidence() { const value = evidenceText.trim(); if (!value) return; setDraft((current) => ({ ...current, evidenceNotes: [...current.evidenceNotes, { id: createId('evidence'), text: value, createdAt: new Date().toISOString() }] })); setEvidenceText('') }
   function toggleCompetency(id: string) { setDraft((current) => ({ ...current, competencyIds: current.competencyIds.includes(id) ? current.competencyIds.filter((item) => item !== id) : [...current.competencyIds, id] })) }
 
-  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={styles.compactCard} role="dialog" aria-modal="true">
+  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={`${styles.compactCard} ${styles.ideaDialogCard}`} role="dialog" aria-modal="true" aria-label="Карточка идеи">
     <header className={styles.workspaceHeader}>
       <div className={styles.ideaActionRow}>
         <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as ActiveIdeaStatus })} aria-label="Статус идеи">
@@ -820,7 +860,7 @@ function WinModal({ draft: initial, profile, busy, error, onClose, onSave, onDel
   const winCurrentExpectations = winSelectedCompetencies.flatMap((id) => competencyById(id)?.levels[profile.currentLevel].slice(0, 2) ?? []).slice(0, 3)
   const winNextExpectations = winTargetLevel ? winSelectedCompetencies.flatMap((id) => competencyById(id)?.levels[winTargetLevel].slice(0, 2) ?? []).slice(0, 3) : []
   async function runAi() { setGuidance(await onAi(draft)) }
-  return <Modal title={draft.id ? 'Открыть win' : 'Зафиксировать win'} subtitle="Просто, но доказуемо. Эскада не будет придумывать недостающие факты." onClose={onClose}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); if (draft.title.trim()) onSave(draft) }}><label className={styles.field}>Что произошло?<input autoFocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label>{draft.sourceContext && <div className={styles.sourceContextRef}><span>Исходный контекст идеи</span><p>{draft.sourceContext}</p></div>}<label className={styles.field}>Почему это важно?<textarea value={draft.impact} onChange={(event) => setDraft({ ...draft, impact: event.target.value })} /></label><label className={styles.field}>Чем это подтверждается?<textarea value={draft.evidence} onChange={(event) => setDraft({ ...draft, evidence: event.target.value })} /></label><details className={styles.optionalBlock}><summary>Дополнительные детали — необязательно</summary><label className={styles.field}>Что изменилось в цифрах?<input value={draft.metrics} onChange={(event) => setDraft({ ...draft, metrics: event.target.value })} placeholder="Только реальные значения" /></label><label className={styles.field}>Кто подтвердил результат?<input value={draft.confirmedBy} onChange={(event) => setDraft({ ...draft, confirmedBy: event.target.value })} placeholder="Руководитель, команда, клиент — если это было" /></label></details><div className={styles.workspaceSectionSpacious}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Компетенции</span><h3>Проверьте или поправьте</h3></div></div><div className={styles.choiceChips}>{competencies.map((competency) => <button type="button" key={competency.id} className={winSelectedCompetencies.includes(competency.id) ? styles.choiceActive : ''} onClick={() => setDraft({ ...draft, competencyIds: draft.competencyIds.includes(competency.id) ? draft.competencyIds.filter((item) => item !== competency.id) : [...winSelectedCompetencies, competency.id] })}>{competency.shortTitle}</button>)}</div></div>{gaps.length > 0 && <div className={styles.guidanceBanner}><strong>Чего не хватает для сильной формулировки</strong><ul>{gaps.map((item) => <li key={item}>{item}</li>)}</ul></div>}{draft.title.trim() && (winCurrentExpectations.length > 0 || winNextExpectations.length > 0) && <section className={styles.signalCard}><span className={styles.eyebrow}>Шкала компетенций</span><h3>Куда это может вести</h3><p>Локальная подсказка без обращения к ИИ — только по вашему тексту и шкале.</p>{winCurrentExpectations.length > 0 && <details><summary>Ожидания текущего уровня</summary><ul>{winCurrentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}{winTargetLevel && winNextExpectations.length > 0 && <details><summary>Как усилить до уровня «{levelLabels[winTargetLevel]}»</summary><ul>{winNextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}</section>}<button className={styles.aiMiniButton} type="button" disabled={busy === 'win_rewrite'} onClick={() => void runAi()}>{busy === 'win_rewrite' ? 'Усиливаем…' : '✦ Усилить формулировку'}</button>{error && <p className={styles.aiError}>{error}</p>}{guidance && <AiGuidancePanel guidance={guidance} compact onApplyRewrite={guidance.rewrite ? () => setDraft({ ...draft, ...(guidance.rewrite ?? {}) }) : undefined} />}<div className={styles.formGrid}><label>Дата<input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label><label className={styles.checkboxField}><input type="checkbox" checked={draft.reportReady} onChange={(event) => setDraft({ ...draft, reportReady: event.target.checked })} /><span>Предлагать для отчётов</span></label></div><div className={styles.modalActions}>{draft.id && <button className={styles.dangerButton} type="button" onClick={() => { if (window.confirm(`Удалить win «${draft.title || 'без названия'}»? Это действие необратимо.`)) onDelete(draft.id as string) }}>Удалить win</button>}<button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить win</button></div></form></Modal>
+  return <Modal title={draft.id ? 'Открыть win' : 'Зафиксировать win'} subtitle="Просто, но доказуемо. Эскада не будет придумывать недостающие факты." onClose={onClose} wide><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); if (draft.title.trim()) onSave(draft) }}><label className={styles.field}>Что произошло?<input autoFocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label>{draft.sourceContext && <div className={styles.sourceContextRef}><span>Исходный контекст идеи</span><p>{draft.sourceContext}</p></div>}<label className={styles.field}>Почему это важно?<textarea value={draft.impact} onChange={(event) => setDraft({ ...draft, impact: event.target.value })} /></label><label className={styles.field}>Чем это подтверждается?<textarea value={draft.evidence} onChange={(event) => setDraft({ ...draft, evidence: event.target.value })} /></label><details className={styles.optionalBlock}><summary>Дополнительные детали — необязательно</summary><label className={styles.field}>Что изменилось в цифрах?<input value={draft.metrics} onChange={(event) => setDraft({ ...draft, metrics: event.target.value })} placeholder="Только реальные значения" /></label><label className={styles.field}>Кто подтвердил результат?<input value={draft.confirmedBy} onChange={(event) => setDraft({ ...draft, confirmedBy: event.target.value })} placeholder="Руководитель, команда, клиент — если это было" /></label></details><div className={styles.workspaceSectionSpacious}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Компетенции</span><h3>Проверьте или поправьте</h3></div></div><div className={styles.choiceChips}>{competencies.map((competency) => <button type="button" key={competency.id} className={winSelectedCompetencies.includes(competency.id) ? styles.choiceActive : ''} onClick={() => setDraft({ ...draft, competencyIds: draft.competencyIds.includes(competency.id) ? draft.competencyIds.filter((item) => item !== competency.id) : [...winSelectedCompetencies, competency.id] })}>{competency.shortTitle}</button>)}</div></div>{gaps.length > 0 && <div className={styles.guidanceBanner}><strong>Чего не хватает для сильной формулировки</strong><ul>{gaps.map((item) => <li key={item}>{item}</li>)}</ul></div>}{draft.title.trim() && (winCurrentExpectations.length > 0 || winNextExpectations.length > 0) && <section className={styles.signalCard}><span className={styles.eyebrow}>Шкала компетенций</span><h3>Куда это может вести</h3><p>Локальная подсказка без обращения к ИИ — только по вашему тексту и шкале.</p>{winCurrentExpectations.length > 0 && <details><summary>Ожидания текущего уровня</summary><ul>{winCurrentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}{winTargetLevel && winNextExpectations.length > 0 && <details><summary>Как усилить до уровня «{levelLabels[winTargetLevel]}»</summary><ul>{winNextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}</section>}<button className={styles.aiMiniButton} type="button" disabled={busy === 'win_rewrite'} onClick={() => void runAi()}>{busy === 'win_rewrite' ? 'Усиливаем…' : '✦ Усилить формулировку'}</button>{error && <p className={styles.aiError}>{error}</p>}{guidance && <AiGuidancePanel guidance={guidance} compact onApplyRewrite={guidance.rewrite ? () => setDraft({ ...draft, ...(guidance.rewrite ?? {}) }) : undefined} />}<div className={styles.formGrid}><label>Дата<input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} /></label><label className={styles.checkboxField}><input type="checkbox" checked={draft.reportReady} onChange={(event) => setDraft({ ...draft, reportReady: event.target.checked })} /><span>Предлагать для отчётов</span></label></div><div className={styles.modalActions}>{draft.id && <button className={styles.dangerButton} type="button" onClick={() => { if (window.confirm(`Удалить win «${draft.title || 'без названия'}»? Это действие необратимо.`)) onDelete(draft.id as string) }}>Удалить win</button>}<button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить win</button></div></form></Modal>
 }
 
 function AiGuidancePanel({ guidance, compact = false, onSaveNextStep, onApplyRewrite }: { guidance: AiResponse; compact?: boolean; onSaveNextStep?: () => void; onApplyRewrite?: () => void }) {
@@ -832,9 +872,22 @@ function ProfileModal({ profile: initial, onClose, onSave, onExport, onImport }:
   return <Modal title="Профиль" subtitle="Название должности и уровень задаются отдельно: свободный title не определяет ожидания шкалы." onClose={onClose}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); onSave(profile) }}><label className={styles.field}>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label className={styles.field}>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><div className={styles.optionalBlock}><div><strong>Локальные данные</strong><span>Экспортируйте резервную копию или импортируйте её на другом устройстве.</span></div><div className={styles.buttonRow}><button type="button" className={styles.secondaryButton} onClick={onExport}>Экспорт</button><button type="button" className={styles.secondaryButton} onClick={onImport}>Импорт</button></div></div><div className={styles.modalActions}><button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить</button></div></form></Modal>
 }
 
-function Modal({ title, subtitle, onClose, children }: { title: string; subtitle: string; onClose: () => void; children: ReactNode }) {
-  useEffect(() => { const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler) }, [onClose])
-  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={styles.compactCard} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className={styles.modalHeader}><div><span className={styles.eyebrow}>Эскада</span><h2 id="modal-title">{title}</h2><p>{subtitle}</p></div><button type="button" aria-label="Закрыть" onClick={onClose}>×</button></div><div className={styles.compactCardBody}>{children}</div></section></div>
+function useDialogBehavior(onClose: () => void) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handler)
+    }
+  }, [onClose])
+}
+
+function Modal({ title, subtitle, onClose, children, wide = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  useDialogBehavior(onClose)
+  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={`${styles.compactCard} ${wide ? styles.modalWide : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className={styles.modalHeader}><div><span className={styles.eyebrow}>Эскада</span><h2 id="modal-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" aria-label="Закрыть" onClick={onClose}>×</button></div><div className={styles.compactCardBody}>{children}</div></section></div>
 }
 
 function Onboarding({ initial, onComplete, onDemo }: { initial: Profile; onComplete: (profile: Profile) => void; onDemo: () => void }) {
