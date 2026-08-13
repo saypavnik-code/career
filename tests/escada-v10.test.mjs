@@ -550,3 +550,23 @@ test('PWA shell exposes collapsible sidebar, install prompt and offline state', 
   assert.match(css, /escada-pwa-shell-v29/)
   assert.match(css, /shellSidebarCollapsed/)
 })
+
+// v30 card readability and active-archive UI cleanup
+
+test('v30 Today and Ideas cards use the responsive readability layer', () => {
+  const css = readFileSync(new URL('../app/career/career.module.css', import.meta.url), 'utf8')
+  assert.match(css, /escada-card-readability-v30/)
+  assert.match(css, /repeat\(auto-fit, minmax\(min\(100%, 260px\), 1fr\)\)/)
+  assert.match(css, /\.noteCard h4[\s\S]*?font-weight:\s*500/)
+  assert.match(css, /\.kanbanCard h4[\s\S]*?font-weight:\s*500/)
+  assert.match(css, /@media \(max-width: 560px\)[\s\S]*?\.pinBoard \{ grid-template-columns: 1fr; \}/)
+})
+
+test('v30 removes active idea archive actions while keeping legacy archive recovery', () => {
+  const dashboard = readFileSync(new URL('../app/career/CareerDashboard.tsx', import.meta.url), 'utf8')
+  assert.doesNotMatch(dashboard, /kanbanArchiveButton/)
+  assert.doesNotMatch(dashboard, /Переместить в архив/)
+  assert.doesNotMatch(dashboard, /function archiveIdea\(/)
+  assert.match(dashboard, /Вернуть в задумки/)
+  assert.match(dashboard, /status === 'archived'/)
+})

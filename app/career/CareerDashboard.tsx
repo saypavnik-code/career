@@ -526,15 +526,6 @@ export default function CareerDashboard() {
     }))
   }
 
-  function archiveIdea(ideaId: string) {
-    updateState((current) => ({
-      ...current,
-      ideas: current.ideas.map((item) => item.id === ideaId ? { ...item, status: 'archived', updatedAt: new Date().toISOString() } : item),
-    }))
-    setIdeaDraft((current) => current?.id === ideaId ? null : current)
-    setNotice('Идея перемещена в архив')
-  }
-
   function restoreIdea(ideaId: string) {
     updateState((current) => ({
       ...current,
@@ -679,7 +670,7 @@ export default function CareerDashboard() {
         </header>
 
         {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
-        {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onArchive={archiveIdea} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
+        {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
         {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView profile={state.profile} cycle={reportingCycle} wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onUseProfilePeriod={useProfileReportingPeriod} onOpenProfile={() => setProfileOpen(true)} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} />}
@@ -689,7 +680,7 @@ export default function CareerDashboard() {
 
       {!state.onboardingComplete && <Onboarding initial={state.profile} onComplete={(profile) => updateState((current) => ({ ...current, onboardingComplete: true, profile }))} onDemo={() => setState(asState(demoState()))} />}
       {profileOpen && <ProfileModal profile={state.profile} onClose={() => setProfileOpen(false)} onSave={(profile) => { updateState((current) => ({ ...current, profile })); setProfileOpen(false); setNotice('Профиль обновлён') }} onExport={exportData} onImport={() => importRef.current?.click()} />}
-      {ideaDraft && <IdeaWorkspace draft={ideaDraft} profile={state.profile} busy={aiBusy} error={aiError} canArchive={state.ideas.some((item) => item.id === ideaDraft.id)} onClose={() => setIdeaDraft(null)} onSave={saveIdea} onPromote={startWinFromIdea} onArchive={archiveIdea} onRestore={restoreIdea} onAi={(idea) => requestAi('idea_review', idea as unknown as Record<string, unknown>, idea.competencyIds)} />}
+      {ideaDraft && <IdeaWorkspace draft={ideaDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setIdeaDraft(null)} onSave={saveIdea} onPromote={startWinFromIdea} onRestore={restoreIdea} onAi={(idea) => requestAi('idea_review', idea as unknown as Record<string, unknown>, idea.competencyIds)} />}
       {newIdeaFromNote && <NewIdeaModal idea={newIdeaFromNote} onClose={() => setNewIdeaFromNote(null)} onSave={(idea) => { saveIdea(idea, true); setNewIdeaFromNote(null) }} onPromote={(idea) => { setNewIdeaFromNote(null); startWinFromIdea(idea) }} />}
       {winDraft && <WinModal draft={winDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setWinDraft(null)} onSave={saveWin} onDelete={removeWin} onAi={(win) => requestAi('win_rewrite', win as unknown as Record<string, unknown>, win.competencyIds)} />}
       {openNote && <NoteOverlay note={openNote} busy={aiBusy} error={aiError} onClose={() => setOpenNote(null)} onConvert={convertNoteToIdea} onEdit={editNote} onAi={(note) => requestAi('idea_review', { title: note.title, details: note.body || note.rawText } as unknown as Record<string, unknown>, [])} />}
@@ -769,13 +760,12 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
   </Modal>
 }
 
-function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onArchive, onRestore, onQuickWin }: {
+function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onRestore, onQuickWin }: {
   ideas: Idea[]
   wins: Win[]
   onNew: () => void
   onOpen: (idea: Idea) => void
   onStatusChange: (ideaId: string, status: ActiveIdeaStatus) => void
-  onArchive: (ideaId: string) => void
   onRestore: (ideaId: string) => void
   onQuickWin: (idea: Idea) => void
 }) {
@@ -828,7 +818,6 @@ function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onArchive, onRe
                     >
                       {KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
                     </select>
-                    <button type="button" className={styles.kanbanArchiveButton} onClick={(event) => { event.stopPropagation(); onArchive(idea.id) }} aria-label={`Архивировать идею «${idea.title}»`}>Архив</button>
                   </div>
                 </article>
               ))}
@@ -971,7 +960,7 @@ function NewIdeaModal({ idea, onClose, onSave, onPromote }: {
   </Modal>
 }
 
-function IdeaWorkspace({ draft: initial, profile, busy, error, canArchive, onClose, onSave, onPromote, onArchive, onRestore, onAi }: { draft: Idea; profile: Profile; busy: string; error: string; canArchive: boolean; onClose: () => void; onSave: (idea: Idea, close?: boolean) => Idea; onPromote: (idea: Idea) => void; onArchive: (ideaId: string) => void; onRestore: (ideaId: string) => void; onAi: (idea: Idea) => Promise<AiResponse> }) {
+function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, onPromote, onRestore, onAi }: { draft: Idea; profile: Profile; busy: string; error: string; onClose: () => void; onSave: (idea: Idea, close?: boolean) => Idea; onPromote: (idea: Idea) => void; onRestore: (ideaId: string) => void; onAi: (idea: Idea) => Promise<AiResponse> }) {
   const [draft, setDraft] = useState(initial)
   const [noteText, setNoteText] = useState('')
   const [evidenceText, setEvidenceText] = useState('')
@@ -1041,7 +1030,6 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, canArchive, onClo
           <div className={styles.evidenceList}>{draft.evidenceNotes.map((item) => <article key={item.id}><span>◆</span><p>{item.text}</p></article>)}</div>
         </section>
 
-        {!isTerminal && canArchive && <button className={styles.artifactDeleteButton} type="button" onClick={() => { const saved = onSave(draft, false); onArchive(saved.id) }}>Переместить в архив</button>}
         {draft.status === 'won' && <p className={styles.artifactTerminalNote}>Эта идея уже оформлена как win.</p>}
       </div>
     </details>

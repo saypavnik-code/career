@@ -1134,24 +1134,6 @@
 .profileCycleBox > div:first-child span { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .profileCycleBox .formGrid { align-items: end; }
 
-.kanbanCard .cardActions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
-}
-.kanbanArchiveButton {
-  min-height: 40px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--muted);
-  padding: 8px 10px;
-  font-size: 10px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-.kanbanArchiveButton:hover { color: var(--accent-dark); border-color: var(--accent); }
-
 .archiveSection {
   border-radius: 22px;
   overflow: clip;
@@ -1249,7 +1231,6 @@
 @media (max-width: 520px) {
   .reportingCycleActions { grid-template-columns: 1fr; }
   .workspaceFooter > div:last-child { grid-template-columns: 1fr; }
-  .kanbanCard .cardActions { grid-template-columns: minmax(0, 1fr) auto; }
 }
 
 @media (max-width: 380px) {
@@ -1978,4 +1959,113 @@
 @media (display-mode: standalone) {
   .shell { min-height: 100dvh; }
   .sidebar { min-height: 100dvh; height: 100dvh; }
+}
+
+/* escada-card-readability-v30: readable Today + Ideas cards across desktop, tablet and phone. */
+.pinBoard {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 14px;
+}
+.noteCard {
+  height: auto;
+  min-height: 132px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  gap: 10px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--navy) 5%, transparent);
+}
+.noteCard h4 {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -.01em;
+  -webkit-line-clamp: 4;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.noteCardDate {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+
+.kanbanBoard { gap: 14px; }
+.kanbanColumnWrap {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 18px;
+}
+.kanbanColumnHeader { min-width: 0; gap: 8px; }
+.kanbanColumnHeader h3 {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.kanbanCard {
+  height: auto;
+  min-height: 174px;
+  padding: 16px;
+  gap: 12px;
+  border-radius: 17px;
+}
+.kanbanCard h4 {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -.01em;
+  -webkit-line-clamp: 4;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.kanbanCard .cardActions {
+  display: block;
+  width: 100%;
+  margin-top: auto;
+  padding-top: 2px;
+}
+.kanbanCardStatusSelect {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--muted);
+  padding: 8px 30px 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  outline: none;
+}
+.kanbanCardStatusSelect:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.readyForWinRow { gap: 7px; }
+.readyForWinBadge { font-size: 9px; font-weight: 700; }
+
+@media (max-width: 1280px) and (min-width: 781px) {
+  .kanbanBoard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 780px) {
+  .pinBoard { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .noteCard { min-height: 120px; padding: 16px; border-radius: 17px; }
+  .noteCard h4 { font-size: 12.5px; line-height: 1.45; }
+  .kanbanBoard { grid-auto-columns: min(88vw, 390px); gap: 12px; }
+  .kanbanCard { min-height: 164px; padding: 15px; }
+  .kanbanCard h4 { font-size: 12.5px; }
+}
+
+@media (max-width: 560px) {
+  .pinBoard { grid-template-columns: 1fr; }
+  .noteCard { min-height: 110px; }
+  .kanbanBoard { grid-auto-columns: min(92vw, 360px); }
+  .kanbanCard { min-height: 158px; }
+}
+
+@media (max-width: 380px) {
+  .noteCard { padding: 15px; }
+  .noteCard h4, .kanbanCard h4 { font-size: 12px; }
+  .kanbanBoard { grid-auto-columns: 94vw; }
 }
