@@ -13,7 +13,10 @@ export const metadata: Metadata = {
   },
   description: 'Персональная система профессионального роста: идеи, работа, wins и отчёты.',
   applicationName: 'Эскада',
-  icons: { apple: `${basePath}/icons/apple-touch-icon.png` },
+  icons: {
+    icon: `${basePath}/favicon.svg`,
+    apple: `${basePath}/icons/apple-touch-icon.png`,
+  },
   appleWebApp: {
     capable: true,
     title: 'Эскада',

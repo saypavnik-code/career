@@ -247,6 +247,9 @@
 .optionalBlock strong { font-size: 12px; }
 .optionalBlock span, .optionalBlock small { color: var(--muted); font-size: 10px; }
 .choiceChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.competencySummaries { display: grid; gap: 4px; margin-top: 4px; }
+.competencySummaries p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.competencySummaries strong { color: var(--ink); }
 .choiceChips button { border: 1px solid var(--line); background: white; border-radius: 999px; padding: 7px 9px; color: var(--muted); font-size: 9px; font-weight: 750; }
 .choiceChips .choiceActive { background: var(--navy); border-color: var(--navy); color: white; }
 .modalBackdrop, .onboardingBackdrop { position: fixed; inset: 0; z-index: 30; background: rgba(10,11,19,0.72); backdrop-filter: blur(12px); display: grid; place-items: center; padding: 20px; }
@@ -1771,7 +1774,20 @@
   border-radius: 16px;
   background: var(--editor-soft);
   box-shadow: none;
+  color: var(--ink);
 }
+.artifactEditorCard .aiResult .eyebrow,
+.artifactEditorCard .aiResult .sectionHeader p { color: var(--muted); }
+.artifactEditorCard .aiResult h3 { color: var(--ink); }
+.artifactEditorCard .aiResultGrid > div { border-color: var(--line); background: rgba(23, 25, 39, .04); }
+.artifactEditorCard .aiResultGrid p { color: var(--ink); }
+.artifactEditorCard .aiSources { border-top-color: var(--line); }
+.artifactEditorCard .aiSources summary { color: var(--ink); }
+.artifactEditorCard .aiSources article { border-bottom-color: var(--line); }
+.artifactEditorCard .aiSources article strong { color: var(--ink); }
+.artifactEditorCard .aiSources article p { color: var(--muted); }
+.artifactEditorCard .aiSources article small,
+.artifactEditorCard .aiCaveat { color: var(--muted); }
 .artifactDeleteButton {
   padding: 7px 2px;
   font-size: 10px;

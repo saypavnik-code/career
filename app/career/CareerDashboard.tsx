@@ -1016,6 +1016,7 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
         <section className={styles.artifactSubsection}>
           <strong>Компетенции</strong>
           <div className={styles.choiceChips}>{competencies.map((competency) => <button type="button" key={competency.id} className={draft.competencyIds.includes(competency.id) ? styles.choiceActive : ''} onClick={() => toggleCompetency(competency.id)}>{competency.shortTitle}</button>)}</div>
+          {selectedCompetencies.length > 0 && <div className={styles.competencySummaries}>{selectedCompetencies.map((id) => { const competency = competencyById(id); return competency ? <p key={competency.id}><strong>{competency.shortTitle}.</strong> {competency.summary}</p> : null })}</div>}
         </section>
 
         <section className={styles.artifactSubsection}>
