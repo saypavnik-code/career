@@ -68,18 +68,6 @@
 .navItem span:last-child, .navActive span:last-child { display: grid; gap: 2px; }
 .navItem strong, .navActive strong { font-size: 14px; }
 .navItem small, .navActive small { font-size: 10px; color: inherit; opacity: 0.62; }
-.sidebarCard {
-  margin-top: auto;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.055);
-  border-radius: 20px;
-  padding: 18px;
-  display: grid;
-  gap: 7px;
-}
-.sidebarCard span { color: #9da3b9; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; }
-.sidebarCard strong { font-size: 14px; }
-.sidebarCard p { color: #aeb4c8; font-size: 12px; line-height: 1.55; margin: 4px 0 0; }
 .workspace { min-width: 0; padding: 0 42px 72px; }
 .topbar {
   min-height: 108px;
@@ -611,18 +599,8 @@
 .reportActionRow { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
 .reportActionRow p { margin: 0; max-width: 62ch; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .reportActionRow button { flex: 0 0 auto; }
-.reportEditorPanel { border-radius: 28px; padding: clamp(22px, 4vw, 34px); background: linear-gradient(145deg, #181a2e, #111321); color: #fff; box-shadow: 0 24px 62px rgba(17,19,33,.20); }
-.reportEditorPanel .sectionHeader { margin-bottom: 20px; }
-.reportEditorPanel .eyebrow { color: rgba(255,255,255,.58); }
-.reportEditorPanel h3 { color: #fff; }
-.reportEditorPanel .sectionHeader p { margin: 8px 0 0; color: rgba(255,255,255,.62); font-size: 12px; line-height: 1.55; }
 .reportEditorTextarea { width: 100%; min-height: 620px; border: 1px solid rgba(255,255,255,.12); border-radius: 20px; background: rgba(8,10,19,.62); color: #f7f8fc; padding: clamp(18px, 3vw, 28px); resize: vertical; outline: none; font: 14px/1.72 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; box-shadow: inset 0 1px 0 rgba(255,255,255,.04); transition: border-color 160ms ease, box-shadow 160ms ease; }
 .reportEditorTextarea:focus { border-color: rgba(215,255,97,.56); box-shadow: 0 0 0 4px rgba(215,255,97,.08), inset 0 1px 0 rgba(255,255,255,.05); }
-.reportEditorActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
-.reportEditorPanel .secondaryButton { border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.07); color: #fff; }
-.reportEditorPanel .secondaryButton:hover { border-color: rgba(215,255,97,.48); color: var(--lime); }
-.reportEditorPanel .primaryButton { background: var(--lime); color: var(--navy); box-shadow: 0 12px 26px rgba(215,255,97,.15); }
-.reportEditorPanel .primaryButton:hover { background: #e1ff82; box-shadow: 0 16px 34px rgba(215,255,97,.22); }
 
 @media (max-width: 780px) {
   .promptCard { flex-direction: column; }
@@ -1069,7 +1047,6 @@
   .kanbanCard { min-height: 146px; padding: 16px; }
   .reportTypeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .reportTypeCard, .reportTypeActive { min-height: 70px; }
-  .reportEditorPanel { border-radius: 24px; padding: 20px 16px; }
   .reportEditorTextarea { min-height: 54dvh; border-radius: 16px; }
   .savedReports { grid-template-columns: 1fr; }
 
@@ -1101,7 +1078,6 @@
 }
 
 /* escada-cycle-archive-responsive-v25: reporting cycle + reversible archive + responsive consistency */
-.reportingCycleCard,
 .profileCycleBox,
 .archiveSection {
   border: 1px solid var(--line);
@@ -1110,21 +1086,6 @@
   -webkit-backdrop-filter: blur(20px) saturate(1.05);
   box-shadow: 0 14px 36px var(--line);
 }
-
-.reportingCycleCard {
-  border-radius: 22px;
-  padding: 18px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  min-width: 0;
-}
-.reportingCycleCard > div:first-child { min-width: 0; display: grid; gap: 6px; }
-.reportingCycleCard strong { font-size: 15px; overflow-wrap: anywhere; }
-.reportingCycleCard p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.reportingCycleActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
-.reportingCycleActions > button { min-height: 44px; }
 
 .profileCycleBox {
   border-radius: 18px;
@@ -1208,20 +1169,12 @@
 .terminalIdeaHint { align-self: center; color: var(--muted); font-size: 11px; font-weight: 750; line-height: 1.4; }
 
 /* Defensive text/layout rules shared by every major responsive surface. */
-.sectionHeader, .pageIntro, .reportActionRow, .reportEditorActions, .workspaceFooter { min-width: 0; }
+.sectionHeader, .pageIntro, .reportActionRow, .workspaceFooter { min-width: 0; }
 .sectionHeader > div, .pageIntro > div, .reportActionRow > p { min-width: 0; }
 .sectionHeader :is(h2, h3, p), .pageIntro :is(h2, p), .reportActionRow p { overflow-wrap: anywhere; }
 .reportWin > div, .savedReportCard, .competencyCard, .progressCard, .directionGrid article { min-width: 0; }
 
-@media (max-width: 1100px) {
-  .reportingCycleCard { align-items: flex-start; }
-  .reportingCycleActions { max-width: 280px; }
-}
-
 @media (max-width: 780px) {
-  .reportingCycleCard { flex-direction: column; align-items: stretch; padding: 16px; border-radius: 18px; }
-  .reportingCycleActions { width: 100%; max-width: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .reportingCycleActions > button { width: 100%; }
   .archiveGrid { grid-template-columns: 1fr; padding: 10px; }
   .archiveCard { padding: 12px; }
   .archiveCard > .secondaryButton { width: 100%; justify-self: stretch; }
@@ -1232,7 +1185,6 @@
 }
 
 @media (max-width: 520px) {
-  .reportingCycleActions { grid-template-columns: 1fr; }
   .workspaceFooter > div:last-child { grid-template-columns: 1fr; }
 }
 
@@ -1779,6 +1731,7 @@
 .artifactEditorCard .aiResult .eyebrow,
 .artifactEditorCard .aiResult .sectionHeader p { color: var(--muted); }
 .artifactEditorCard .aiResult h3 { color: var(--ink); }
+.artifactEditorCard .aiResultGrid strong { color: var(--ink); }
 .artifactEditorCard .aiResultGrid > div { border-color: var(--line); background: rgba(23, 25, 39, .04); }
 .artifactEditorCard .aiResultGrid p { color: var(--ink); }
 .artifactEditorCard .aiSources { border-top-color: var(--line); }
@@ -1879,8 +1832,7 @@
 }
 .brand,
 .navItem,
-.navActive,
-.sidebarCard {
+.navActive {
   transition: gap 160ms ease, padding 160ms ease, opacity 140ms ease, background 140ms ease, box-shadow 140ms ease;
 }
 .shellSidebarCollapsed { grid-template-columns: 84px minmax(0, 1fr); }
@@ -1898,8 +1850,7 @@
   border-radius: 14px;
 }
 .shellSidebarCollapsed .navItem > span:last-child,
-.shellSidebarCollapsed .navActive > span:last-child,
-.shellSidebarCollapsed .sidebarCard { display: none; }
+.shellSidebarCollapsed .navActive > span:last-child { display: none; }
 .shellSidebarCollapsed .navIcon { width: 28px; font-size: 18px; }
 .shellSidebarCollapsed .navActive { box-shadow: 0 8px 24px rgba(0,0,0,.16); }
 .topbarLeading,

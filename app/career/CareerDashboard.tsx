@@ -653,7 +653,6 @@ export default function CareerDashboard() {
         <nav className={styles.nav} aria-label="Основная навигация">
           {navItems.map((item) => <button key={item.id} type="button" className={view === item.id ? styles.navActive : styles.navItem} aria-current={view === item.id ? 'page' : undefined} title={sidebarCollapsed ? item.label : undefined} onClick={() => setView(item.id)}><span className={styles.navIcon}>{item.icon}</span><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}
         </nav>
-        <div className={styles.sidebarCard}><span>Текущий уровень</span><strong>{levelLabels[state.profile.currentLevel]}</strong><p>Ожидания и подсказки меняются вместе с уровнем профиля.</p></div>
       </aside>
 
       <section className={styles.workspace}>
@@ -673,6 +672,7 @@ export default function CareerDashboard() {
         {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
         {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView profile={state.profile} cycle={reportingCycle} wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onUseProfilePeriod={useProfileReportingPeriod} onOpenProfile={() => setProfileOpen(true)} />}
+        {view === 'reports' && reportText && <ReportDraftModal reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onClose={() => { setReportText(''); setReportGuidance(null) }} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} />}
       </section>
 
@@ -863,7 +863,7 @@ function WinsView({ wins, ideas, onNew, onOpen, onDelete, onReports }: { wins: W
   </div>
 }
 
-function ReportsView({ profile, cycle, wins, ideas, selectedWinIds, selectedIdeaIds, periodStart, periodEnd, reportType, reportText, reports, guidance, busy, error, onPeriodStart, onPeriodEnd, onReportType, onToggleWin, onToggleIdea, onSelectAll, onGenerate, onReview, onReportText, onSave, onOpenReport, onUseProfilePeriod, onOpenProfile }: {
+function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart, periodEnd, reportType, reportText, busy, error, onPeriodStart, onPeriodEnd, onReportType, onToggleWin, onToggleIdea, onSelectAll, onGenerate }: {
   profile: Profile
   cycle: { rhythm: Profile['reportingRhythm']; periodStart: string; periodEnd: string; daysRemaining: number }
   wins: Win[]
@@ -892,21 +892,7 @@ function ReportsView({ profile, cycle, wins, ideas, selectedWinIds, selectedIdea
   onUseProfilePeriod: () => void
   onOpenProfile: () => void
 }) {
-  const cycleStatus = cycle.daysRemaining < 0
-    ? `Цикл завершился ${Math.abs(cycle.daysRemaining)} дн. назад — обновите дату в профиле.`
-    : cycle.daysRemaining === 0
-      ? 'Текущий цикл заканчивается сегодня.'
-      : `До конца текущего цикла ${cycle.daysRemaining} дн.`
   return <div className={styles.pageStack}>
-    <section className={styles.pageIntro}>
-      <div><span className={styles.eyebrow}>Вы контролируете содержание</span><h2>Соберите отчёт</h2><p>Выберите период, тип документа и только те достижения, которые должны войти в черновик.</p></div>
-    </section>
-
-    <section className={styles.reportingCycleCard}>
-      <div><span className={styles.eyebrow}>Отчётный цикл</span><strong>{reportingRhythmLabels[cycle.rhythm]} · до {formatDate(cycle.periodEnd)}</strong><p>{cycleStatus}</p></div>
-      <div className={styles.reportingCycleActions}><button className={styles.secondaryButton} type="button" onClick={onOpenProfile}>Настроить</button><button className={styles.primaryButton} type="button" onClick={onUseProfilePeriod}>Взять период цикла</button></div>
-    </section>
-
     <section className={styles.reportTypeGrid}>{visibleReportTypes.map((value) => <button type="button" key={value} className={reportType === value ? styles.reportTypeActive : styles.reportTypeCard} onClick={() => onReportType(value)}><strong>{reportTypeLabels[value]}</strong></button>)}</section>
 
     <section className={`${styles.panel} ${styles.reportBuilder}`}>
@@ -917,16 +903,27 @@ function ReportsView({ profile, cycle, wins, ideas, selectedWinIds, selectedIdea
       <div className={styles.reportActionRow}><p>Эскада соберёт текст только из выбранных записей. Цифры и влияние нужно подтвердить самостоятельно.</p><button className={styles.primaryButton} type="button" disabled={!selectedWinIds.length || busy === 'report_draft'} onClick={() => void onGenerate()}>{busy === 'report_draft' ? 'Эскада собирает…' : reportText ? 'Пересобрать черновик' : 'Собрать черновик с Эскадой'}</button></div>
       {error && <p className={styles.aiError}>{error}</p>}
     </section>
-
-    {reportText && <section className={styles.reportEditorPanel}>
-      <div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Редактор</span><h3>{reportTypeLabels[reportType]}</h3><p>Это рабочий текст, а не маленькое окно предпросмотра. Отредактируйте его перед сохранением.</p></div></div>
-      <textarea className={styles.reportEditorTextarea} value={reportText} onChange={(event) => onReportText(event.target.value)} aria-label="Текст отчёта" />
-      <div className={styles.reportEditorActions}><button className={styles.secondaryButton} type="button" disabled={busy === 'report_review'} onClick={() => void onReview()}>{busy === 'report_review' ? 'Проверяем…' : 'Проверить по шкале'}</button><button className={styles.primaryButton} type="button" onClick={onSave}>Сохранить версию</button></div>
-    </section>}
-
-    {guidance && <AiGuidancePanel guidance={guidance} />}
-    {reports.length > 0 && <section className={styles.savedReports}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>История</span><h3>Сохранённые версии</h3></div></div>{reports.slice(0, 5).map((report) => <button type="button" className={styles.savedReportCard} key={report.id} onClick={() => onOpenReport(report)}><strong>{report.title}</strong><span>{formatDate(report.createdAt.slice(0, 10))}</span><small>Открыть версию</small></button>)}</section>}
   </div>
+}
+
+function ReportDraftModal({ reportType, reportText, reports, guidance, busy, onReview, onReportText, onSave, onOpenReport, onClose }: {
+  reportType: ReportType
+  reportText: string
+  reports: Report[]
+  guidance: AiResponse | null
+  busy: string
+  onReview: () => Promise<void>
+  onReportText: (value: string) => void
+  onSave: () => void
+  onOpenReport: (report: Report) => void
+  onClose: () => void
+}) {
+  const actions = <div className={styles.artifactFooterRight}><button className={styles.secondaryButton} type="button" disabled={busy === 'report_review'} onClick={() => void onReview()}>{busy === 'report_review' ? 'Проверяем…' : 'Проверить по шкале'}</button><button className={styles.primaryButton} type="button" onClick={onSave}>Сохранить версию</button></div>
+  return <ArtifactEditorShell label={reportTypeLabels[reportType]} onClose={onClose} actions={actions}>
+    <textarea className={styles.reportEditorTextarea} value={reportText} onChange={(event) => onReportText(event.target.value)} aria-label="Текст отчёта" autoFocus />
+    {guidance && <AiGuidancePanel guidance={guidance} compact />}
+    {reports.length > 0 && <section className={styles.savedReports}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>История</span><h3>Сохранённые версии</h3></div></div>{reports.slice(0, 5).map((report) => <button type="button" className={styles.savedReportCard} key={report.id} onClick={() => onOpenReport(report)}><strong>{report.title}</strong><span>{formatDate(report.createdAt.slice(0, 10))}</span><small>Открыть версию</small></button>)}</section>}
+  </ArtifactEditorShell>
 }
 
 function GrowthView({ profile, path, tab, onTab, guidance, busy, error, onAi, onCreateIdea }: { profile: Profile; path: ReturnType<typeof computeGrowthPath> & { currentLevel: LevelKey; nextLevel: LevelKey | null; strongSignals: Array<{ id: string; title: string; count: number }>; underdocumented: Array<{ id: string; title: string }>; directions: Array<{ competencyId: string; title: string; criterion: string }> }; tab: GrowthTab; onTab: (tab: GrowthTab) => void; guidance: AiResponse | null; busy: string; error: string; onAi: () => Promise<void>; onCreateIdea: (competency: Competency) => void }) {
