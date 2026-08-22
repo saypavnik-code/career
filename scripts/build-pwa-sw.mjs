@@ -50,6 +50,9 @@ const serviceWorker = `// escada-pwa-shell-v29 — generated after static export
 `    self.clients.claim(),\n` +
 `  ]));\n` +
 `});\n\n` +
+`self.addEventListener('message', (event) => {\n` +
+`  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();\n` +
+`});\n\n` +
 `function remember(request, response) {\n` +
 `  if (!response || !response.ok || response.type === 'opaque') return response;\n` +
 `  const copy = response.clone();\n` +

@@ -376,24 +376,48 @@ export default function CareerDashboard() {
     }
   }, [])
 
+  const [swReloadPending, setSwReloadPending] = useState(false)
+
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production' || !('serviceWorker' in navigator)) return
     let active = true
+    let reloaded = false
+
+    const activateWaiting = (worker: ServiceWorker | null) => {
+      worker?.postMessage({ type: 'SKIP_WAITING' })
+    }
+
     navigator.serviceWorker.register(`${ESCADA_BASE_PATH}/sw.js`, { scope: `${ESCADA_BASE_PATH}/` })
       .then((registration) => {
         if (!active) return
-        const reportWaiting = () => setNotice('Обновление Эскады готово и применится после перезапуска')
-        if (registration.waiting && navigator.serviceWorker.controller) reportWaiting()
+        if (registration.waiting && navigator.serviceWorker.controller) activateWaiting(registration.waiting)
         registration.addEventListener('updatefound', () => {
           const worker = registration.installing
           worker?.addEventListener('statechange', () => {
-            if (active && worker.state === 'installed' && navigator.serviceWorker.controller) reportWaiting()
+            if (active && worker.state === 'installed' && navigator.serviceWorker.controller) activateWaiting(worker)
           })
         })
       })
       .catch(() => { /* PWA enhancement is optional; core local-first app must keep working. */ })
-    return () => { active = false }
+
+    const onControllerChange = () => {
+      if (reloaded) return
+      reloaded = true
+      setSwReloadPending(true)
+    }
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
+    return () => {
+      active = false
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
+    }
   }, [])
+
+  useEffect(() => {
+    if (!swReloadPending) return
+    const editorOpen = Boolean(ideaDraft || winDraft || reportText)
+    if (editorOpen) return
+    window.location.reload()
+  }, [swReloadPending, ideaDraft, winDraft, reportText])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
