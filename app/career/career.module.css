@@ -1414,7 +1414,7 @@
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
 }
-.artifactFooterRight { min-width: 0; margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.artifactFooterRight { min-width: 0; margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 .artifactToolButton,
 .artifactSaveButton {
   min-height: 36px;

@@ -672,7 +672,7 @@ export default function CareerDashboard() {
         {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
         {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView profile={state.profile} cycle={reportingCycle} wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onUseProfilePeriod={useProfileReportingPeriod} onOpenProfile={() => setProfileOpen(true)} />}
-        {view === 'reports' && reportText && <ReportDraftModal reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onClose={() => { setReportText(''); setReportGuidance(null) }} />}
+        {view === 'reports' && reportText && <ReportDraftModal reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} profile={state.profile} periodStart={periodStart} periodEnd={periodEnd} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onClose={() => { setReportText(''); setReportGuidance(null) }} onNotice={setNotice} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} />}
       </section>
 
@@ -906,19 +906,76 @@ function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart
   </div>
 }
 
-function ReportDraftModal({ reportType, reportText, reports, guidance, busy, onReview, onReportText, onSave, onOpenReport, onClose }: {
+function ReportDraftModal({ reportType, reportText, reports, guidance, busy, profile, periodStart, periodEnd, onReview, onReportText, onSave, onOpenReport, onClose, onNotice }: {
   reportType: ReportType
   reportText: string
   reports: Report[]
   guidance: AiResponse | null
   busy: string
+  profile: Profile
+  periodStart: string
+  periodEnd: string
   onReview: () => Promise<void>
   onReportText: (value: string) => void
   onSave: () => void
   onOpenReport: (report: Report) => void
   onClose: () => void
+  onNotice: (message: string) => void
 }) {
-  const actions = <div className={styles.artifactFooterRight}><button className={styles.secondaryButton} type="button" disabled={busy === 'report_review'} onClick={() => void onReview()}>{busy === 'report_review' ? 'Проверяем…' : 'Проверить по шкале'}</button><button className={styles.primaryButton} type="button" onClick={onSave}>Сохранить версию</button></div>
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+
+  async function copyReportText() {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(reportText)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = reportText
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.focus()
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      setCopyState('copied')
+      onNotice('Отчёт скопирован в буфер обмена')
+    } catch {
+      setCopyState('failed')
+      onNotice('Не удалось скопировать — выделите текст вручную')
+    }
+    window.setTimeout(() => setCopyState('idle'), 2200)
+  }
+
+  function printReport() {
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer')
+    if (!printWindow) {
+      onNotice('Браузер заблокировал окно печати — разрешите всплывающие окна')
+      return
+    }
+    const title = `${reportTypeLabels[reportType]} · ${profile.name || 'Эскада'}`
+    const periodLine = periodStart && periodEnd ? `${formatDate(periodStart)} — ${formatDate(periodEnd)}` : ''
+    const escapedBody = reportText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    printWindow.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8" /><title>${title}</title><style>
+      body { font-family: 'Georgia', 'Times New Roman', serif; color: #1a1a2e; max-width: 720px; margin: 48px auto; padding: 0 24px; line-height: 1.55; }
+      header { margin-bottom: 28px; border-bottom: 2px solid #1a1a2e; padding-bottom: 16px; }
+      header h1 { font-size: 22px; margin: 0 0 4px; }
+      header p { margin: 0; color: #555; font-size: 14px; }
+      pre { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; font-size: 15px; margin: 0; }
+      @media print { body { margin: 0; padding: 24px; } }
+    </style></head><body><header><h1>${title}</h1>${periodLine ? `<p>${periodLine}</p>` : ''}</header><pre>${escapedBody}</pre></body></html>`)
+    printWindow.document.close()
+    printWindow.focus()
+    window.setTimeout(() => printWindow.print(), 250)
+  }
+
+  const actions = <div className={styles.artifactFooterRight}>
+    <button className={styles.secondaryButton} type="button" onClick={() => void copyReportText()}>{copyState === 'copied' ? '✓ Скопировано' : copyState === 'failed' ? 'Не удалось — попробуйте снова' : 'Скопировать'}</button>
+    <button className={styles.secondaryButton} type="button" onClick={printReport}>Печать / PDF</button>
+    <button className={styles.secondaryButton} type="button" disabled={busy === 'report_review'} onClick={() => void onReview()}>{busy === 'report_review' ? 'Проверяем…' : 'Проверить по шкале'}</button>
+    <button className={styles.primaryButton} type="button" onClick={onSave}>Сохранить версию</button>
+  </div>
   return <ArtifactEditorShell label={reportTypeLabels[reportType]} onClose={onClose} actions={actions}>
     <textarea className={styles.reportEditorTextarea} value={reportText} onChange={(event) => onReportText(event.target.value)} aria-label="Текст отчёта" autoFocus />
     {guidance && <AiGuidancePanel guidance={guidance} compact />}
