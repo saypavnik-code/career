@@ -1,4 +1,9 @@
-# Эскада — session handoff
+#!/usr/bin/env python3
+"""Rewrite handoff.md in one shot. Run from /workspaces/career:
+    python3 write_handoff.py
+"""
+
+content = """# Эскада — session handoff
 
 **Repo:** `saypavnik-code/career` · branch `main` only · dev в GitHub Codespaces `/workspaces/career`
 **Last confirmed on origin/main:** `08cf712` — sync commit (handoff.md актуализирован, дубликат SKIP_WAITING listener в scripts/build-pwa-sw.mjs убран после случайного повторного локального применения v28)
@@ -42,3 +47,9 @@ v30 (после того как v29 будет запущен и подтвер�
 
 ## Стиль общения
 Русский, структурировано, по делу, без воды. Технический код — на английском внутри файлов, UI — на русском. При продуктовых вопросах — сначала анализ реального кода (grep/view), потом рассуждения.
+"""
+
+with open("handoff.md", "w", encoding="utf-8") as f:
+    f.write(content)
+
+print("handoff.md rewritten successfully.")
