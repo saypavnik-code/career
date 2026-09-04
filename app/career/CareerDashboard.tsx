@@ -12,6 +12,15 @@ import {
 } from './career-data'
 import { findCriterion } from './competency-knowledge.mjs'
 import { buildLocalGuidance } from './local-guidance.mjs'
+import { deriveActiveScale } from './active-scale.mjs'
+import type { ActiveScale } from './active-scale.mjs'
+import {
+  CUSTOM_SCALE_MIN_CHARS,
+  MOCK_PARSER_DISCLAIMER,
+  createCustomScaleDraft,
+  parseCustomScaleMock,
+} from './custom-scale.mjs'
+import type { CustomCompetencyScale } from './custom-scale.mjs'
 import {
   PREVIOUS_STORAGE_KEYS,
   STORAGE_KEY,
@@ -28,7 +37,9 @@ import {
   inferLevelSignal,
   migrateState,
   noteToIdea,
+  normalizeCustomCompetencyScale,
   promoteIdeaToWin,
+  resetCycleForNewScale,
   selectWinsForPeriod,
   suggestBehaviorRefs,
   suggestCompetencyIds,
@@ -143,6 +154,8 @@ interface CareerState {
   ideas: Idea[]
   wins: Win[]
   reports: Report[]
+  customCompetencyScale: CustomCompetencyScale | null
+  focusCompetencyIds: string[]
 }
 
 interface WinDraft extends Omit<Win, 'id' | 'createdAt'> {
@@ -242,17 +255,17 @@ function criterionText(ref: string) {
   return criterion?.text ?? ref
 }
 
-function newIdea(currentLevel: LevelKey, title = '') {
+function newIdea(currentLevel: LevelKey, title = '', defaultCompetencyIds: string[] = []) {
   const inferred = inferLevelSignal(title, currentLevel) as { level: LevelKey; reason: string }
   const now = new Date().toISOString()
   return {
-    id: createId('idea'), title, details: '', nextStep: '', status: 'concept', competencyIds: [],
+    id: createId('idea'), title, details: '', nextStep: '', status: 'concept', competencyIds: [...defaultCompetencyIds],
     levelSignal: inferred.level, levelReason: inferred.reason, behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [],
     createdAt: now, updatedAt: now,
   } as Idea
 }
 
-function emptyWin(): WinDraft {
+function emptyWin(defaultCompetencyIds: string[] = []): WinDraft {
   return {
     sourceIdeaId: null,
     sourceContext: '',
@@ -262,7 +275,7 @@ function emptyWin(): WinDraft {
     metrics: '',
     confirmedBy: '',
     date: todayIso(),
-    competencyIds: [],
+    competencyIds: [...defaultCompetencyIds],
     behaviorRefs: [],
     levelSignal: 'specialist',
     workSummary: [],
@@ -441,14 +454,32 @@ export default function CareerDashboard() {
   const activeIdeas = useMemo(() => state.ideas.filter((item) => item.status !== 'won' && item.status !== 'archived'), [state.ideas])
   const winsInPeriod = useMemo(() => selectWinsForPeriod(state.wins, periodStart, periodEnd) as Win[], [state.wins, periodStart, periodEnd])
   const reportingCycle = useMemo(() => computeReportingCycle(state.profile, new Date()) as { rhythm: Profile['reportingRhythm']; periodStart: string; periodEnd: string; daysRemaining: number }, [state.profile])
-  const growthPath = useMemo(() => computeGrowthPath(state as unknown as Record<string, unknown>, competencies) as {
+  // v31: if a custom scale is loaded and fully parsed, it fully replaces the
+  // built-in Bitrix24 scale everywhere the UI reads "the" competency list.
+  // v31: if a custom scale is loaded and fully parsed, it fully replaces the
+  // built-in Bitrix24 scale everywhere the UI reads "the" competency list.
+  const activeCompetencies = useMemo<Competency[]>(
+    () => (state.customCompetencyScale?.status === 'ready' && state.customCompetencyScale.competencies?.length
+      ? state.customCompetencyScale.competencies
+      : competencies),
+    [state.customCompetencyScale],
+  )
+  // v32: same source of truth, reshaped for AI retrieval (ai-contract.mjs /
+  // local-guidance.mjs read allCriteria + competencyKeywords, not the raw
+  // competency list). See active-scale.mjs for the derivation.
+  const activeScale = useMemo<ActiveScale>(
+    () => deriveActiveScale(state.customCompetencyScale as unknown as Parameters<typeof deriveActiveScale>[0]),
+    [state.customCompetencyScale],
+  )
+  const growthPath = useMemo(() => computeGrowthPath(state as unknown as Record<string, unknown>, activeCompetencies, state.focusCompetencyIds) as {
     currentLevel: LevelKey
     nextLevel: LevelKey | null
     strongSignals: Array<{ id: string; title: string; count: number }>
     underdocumented: Array<{ id: string; title: string }>
     directions: Array<{ competencyId: string; title: string; criterion: string }>
     evidenceCount: number
-  }, [state])
+    isFocused: boolean
+  }, [state, activeCompetencies])
 
   function updateState(updater: (current: CareerState) => CareerState) {
     setState((current) => updater(current))
@@ -467,12 +498,24 @@ export default function CareerDashboard() {
     setAiError('')
     const aiProfile = { name: state.profile.name, market: state.profile.market, currentLevel: state.profile.currentLevel }
     const payload = { profile: aiProfile as unknown as Record<string, unknown>, artifact, competencyIds }
+    // v32: the active scale (default or the user's uploaded custom one) now
+    // travels with every AI request — both the offline fallback and the
+    // external endpoint's request body, so retrieval always matches whatever
+    // scale ScaleReference is currently showing. The external endpoint may
+    // not read customScale yet; the field is included so the contract is
+    // ready when server-side support lands.
     try {
-      if (!ESCADA_AI_ENDPOINT) return buildLocalGuidance(action, payload) as unknown as AiResponse
+      if (!ESCADA_AI_ENDPOINT) return buildLocalGuidance(action, payload, activeScale) as unknown as AiResponse
       const response = await fetch(ESCADA_AI_ENDPOINT, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action, profile: aiProfile, artifact, competencyIds }),
+        body: JSON.stringify({
+          action,
+          profile: aiProfile,
+          artifact,
+          competencyIds,
+          customScale: activeScale.isCustom ? { competencies: activeScale.competencies, knowledgeBaseVersion: activeScale.knowledgeBaseVersion } : null,
+        }),
       })
       const data = await response.json() as AiResponse & { message?: string }
       if (!response.ok) throw new Error(data.message || 'Внешняя подсказка вернула ошибку')
@@ -486,7 +529,7 @@ export default function CareerDashboard() {
         const message = caughtError instanceof Error ? caughtError.message : 'Внешняя подсказка недоступна'
         setAiError(`${message}. Показана локальная подсказка по шкале компетенций.`)
       }
-      return buildLocalGuidance(action, payload) as unknown as AiResponse
+      return buildLocalGuidance(action, payload, activeScale) as unknown as AiResponse
     } finally {
       setAiBusy('')
     }
@@ -643,6 +686,55 @@ export default function CareerDashboard() {
     setReportGuidance(response)
   }
 
+  // v31: draft + mock-parse a custom competency scale. This does NOT touch
+  // state.customCompetencyScale until the user explicitly applies it — see
+  // handleApplyCustomScale, which is the destructive step.
+  function handleCustomScaleUpload(rawInput: string, sourceType: 'text' | 'file', sourceFileName: string | null, title: string) {
+    if (rawInput.trim().length < CUSTOM_SCALE_MIN_CHARS) {
+      setNotice('Слишком короткий текст — добавьте больше деталей инструкций')
+      return null
+    }
+    const draft = createCustomScaleDraft(rawInput, sourceType, sourceFileName, title) as CustomCompetencyScale
+    try {
+      const parsed = parseCustomScaleMock(rawInput, title)
+      return normalizeCustomCompetencyScale({
+        ...draft,
+        status: 'ready',
+        competencies: parsed.competencies,
+        knowledgeBaseVersion: parsed.knowledgeBaseVersion,
+        parseNotes: [MOCK_PARSER_DISCLAIMER, ...parsed.parseNotes],
+      }) as unknown as CustomCompetencyScale
+    } catch (err) {
+      return normalizeCustomCompetencyScale({
+        ...draft,
+        status: 'error',
+        errorMessage: err instanceof Error ? err.message : 'Не удалось разобрать текст',
+      }) as unknown as CustomCompetencyScale
+    }
+  }
+
+  // Applying a ready custom scale fully replaces the default one and resets
+  // the whole working cycle (notes/ideas/wins/reports) — old competencyIds
+  // would otherwise silently point at a scale that no longer exists.
+  function handleApplyCustomScale(scale: CustomCompetencyScale) {
+    setState((current) => asState(resetCycleForNewScale(current as unknown as Record<string, unknown>, scale)))
+    setGrowthTab('scale')
+    setNotice('Загружена новая шкала — рабочий цикл начат заново')
+  }
+
+  function handleDiscardCustomScale() {
+    updateState((current) => ({ ...current, customCompetencyScale: null }))
+    setNotice('Возврат к стандартной шкале Bitrix24')
+  }
+
+  // v33: personal focus is a choice the person makes themselves, not an
+  // AI-generated recommendation — see growthPath.directions for the AI-side
+  // suggestion, which stays separate. Capped at 3 to match the product
+  // decision (1-3 competencies per cycle).
+  function handleSetFocus(competencyIds: string[]) {
+    updateState((current) => ({ ...current, focusCompetencyIds: competencyIds.slice(0, 3) }))
+  }
+
   function exportData() {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -693,11 +785,11 @@ export default function CareerDashboard() {
         </header>
 
         {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
-        {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
-        {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin())} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
+        {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel, '', state.focusCompetencyIds))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
+        {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin(state.focusCompetencyIds))} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView profile={state.profile} cycle={reportingCycle} wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onUseProfilePeriod={useProfileReportingPeriod} onOpenProfile={() => setProfileOpen(true)} />}
         {view === 'reports' && reportText && <ReportDraftModal reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} profile={state.profile} periodStart={periodStart} periodEnd={periodEnd} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onClose={() => { setReportText(''); setReportGuidance(null) }} onNotice={setNotice} />}
-        {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} />}
+        {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} activeCompetencies={activeCompetencies} customScale={state.customCompetencyScale} focusCompetencyIds={state.focusCompetencyIds} onSetFocus={handleSetFocus} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} onUploadScale={handleCustomScaleUpload} onApplyScale={handleApplyCustomScale} onDiscardScale={handleDiscardCustomScale} />}
       </section>
 
       <nav className={styles.mobileNav} aria-label="Мобильная навигация">{navItems.map((item) => <button key={item.id} type="button" className={view === item.id ? styles.mobileActive : ''} onClick={() => setView(item.id)}><span>{item.icon}</span><small>{item.label}</small></button>)}</nav>
@@ -1007,13 +1099,124 @@ function ReportDraftModal({ reportType, reportText, reports, guidance, busy, pro
   </ArtifactEditorShell>
 }
 
-function GrowthView({ profile, path, tab, onTab, guidance, busy, error, onAi, onCreateIdea }: { profile: Profile; path: ReturnType<typeof computeGrowthPath> & { currentLevel: LevelKey; nextLevel: LevelKey | null; strongSignals: Array<{ id: string; title: string; count: number }>; underdocumented: Array<{ id: string; title: string }>; directions: Array<{ competencyId: string; title: string; criterion: string }> }; tab: GrowthTab; onTab: (tab: GrowthTab) => void; guidance: AiResponse | null; busy: string; error: string; onAi: () => Promise<void>; onCreateIdea: (competency: Competency) => void }) {
-  return <div className={styles.pageStack}><section className={styles.pageIntro}><div><span className={styles.eyebrow}>Ожидания, а не оценка</span><p>Шкала помогает понимать текущие ожидания и следующий шаг. Она не превращается в обязательный чеклист.</p></div></section><div className={styles.segmentedControl}><button type="button" className={tab === 'path' ? styles.segmentActive : ''} onClick={() => onTab('path')}>Мой путь</button><button type="button" className={tab === 'scale' ? styles.segmentActive : ''} onClick={() => onTab('scale')}>Шкала</button></div>{tab === 'path' ? <><section className={styles.progressHero}><div><span className={styles.eyebrow}>Ваш контекст</span><h2>{levelLabels[profile.currentLevel]}</h2><p>{profile.market || 'Рынок или команда не указаны'}</p></div><div className={styles.levelRoute}><div><small>Текущий уровень</small><strong>{levelLabels[profile.currentLevel]}</strong></div><span>→</span><div><small>{path.nextLevel ? 'Следующий уровень' : 'Следующий масштаб'}</small><strong>{path.nextLevel ? levelLabels[path.nextLevel] : 'Больше системного влияния'}</strong></div></div></section><div className={styles.progressGrid}><section className={styles.progressCard}><span className={styles.eyebrow}>Сильные сигналы</span><h3>Уже подтверждаются работой</h3>{path.strongSignals.length ? path.strongSignals.map((item) => <div className={styles.progressSignal} key={item.id}><strong>{item.title}</strong><span>{item.count} сигналов</span></div>) : <p className={styles.muted}>Добавьте идеи и wins — Эскада покажет устойчивые сигналы.</p>}</section><section className={styles.progressCard}><span className={styles.eyebrow}>Недостаточно подтверждено</span><h3>Не пробел, а зона наблюдения</h3>{path.underdocumented.map((item) => <div className={styles.progressSignal} key={item.id}><strong>{item.title}</strong><span>мало записей</span></div>)}</section></div><section className={styles.panel}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>Следующий фокус</span><h3>1–3 направления</h3></div><button className={styles.aiMiniButton} type="button" disabled={busy === 'growth_guidance'} onClick={() => void onAi()}>{busy === 'growth_guidance' ? 'Эскада думает…' : '✦ Что развивать дальше?'}</button></div><div className={styles.directionGrid}>{path.directions.map((item) => <article key={item.competencyId}><strong>{item.title}</strong><p>{item.criterion}</p><button type="button" className={styles.textButton} onClick={() => { const competency = competencyById(item.competencyId); if (competency) onCreateIdea(competency) }}>Создать идею</button></article>)}</div>{error && <p className={styles.aiError}>{error}</p>}</section>{guidance && <AiGuidancePanel guidance={guidance} />}</> : <ScaleReference profile={profile} onCreateIdea={onCreateIdea} />}</div>
+function GrowthView({ profile, path, activeCompetencies, customScale, focusCompetencyIds, onSetFocus, tab, onTab, guidance, busy, error, onAi, onCreateIdea, onUploadScale, onApplyScale, onDiscardScale }: { profile: Profile; path: ReturnType<typeof computeGrowthPath> & { currentLevel: LevelKey; nextLevel: LevelKey | null; strongSignals: Array<{ id: string; title: string; count: number }>; underdocumented: Array<{ id: string; title: string }>; directions: Array<{ competencyId: string; title: string; criterion: string }>; isFocused: boolean }; activeCompetencies: Competency[]; customScale: CustomCompetencyScale | null; focusCompetencyIds: string[]; onSetFocus: (competencyIds: string[]) => void; tab: GrowthTab; onTab: (tab: GrowthTab) => void; guidance: AiResponse | null; busy: string; error: string; onAi: () => Promise<void>; onCreateIdea: (competency: Competency) => void; onUploadScale: (rawInput: string, sourceType: 'text' | 'file', sourceFileName: string | null, title: string) => CustomCompetencyScale | null; onApplyScale: (scale: CustomCompetencyScale) => void; onDiscardScale: () => void }) {
+  return <div className={styles.pageStack}><section className={styles.pageIntro}><div><span className={styles.eyebrow}>Ожидания, а не оценка</span><p>Шкала помогает понимать текущие ожидания и следующий шаг. Она не превращается в обязательный чеклист.</p></div></section><div className={styles.segmentedControl}><button type="button" className={tab === 'path' ? styles.segmentActive : ''} onClick={() => onTab('path')}>Мой путь</button><button type="button" className={tab === 'scale' ? styles.segmentActive : ''} onClick={() => onTab('scale')}>Шкала</button></div>{tab === 'path' ? <><section className={styles.progressHero}><div><span className={styles.eyebrow}>Ваш контекст</span><h2>{levelLabels[profile.currentLevel]}</h2><p>{profile.market || 'Рынок или команда не указаны'}</p></div><div className={styles.levelRoute}><div><small>Текущий уровень</small><strong>{levelLabels[profile.currentLevel]}</strong></div><span>→</span><div><small>{path.nextLevel ? 'Следующий уровень' : 'Следующий масштаб'}</small><strong>{path.nextLevel ? levelLabels[path.nextLevel] : 'Больше системного влияния'}</strong></div></div></section><FocusManager activeCompetencies={activeCompetencies} focusCompetencyIds={focusCompetencyIds} onSetFocus={onSetFocus} /><div className={styles.progressGrid}><section className={styles.progressCard}><span className={styles.eyebrow}>Сильные сигналы</span><h3>Уже подтверждаются работой</h3>{path.strongSignals.length ? path.strongSignals.map((item) => <div className={styles.progressSignal} key={item.id}><strong>{item.title}</strong><span>{item.count} сигналов</span></div>) : <p className={styles.muted}>Добавьте идеи и wins — Эскада покажет устойчивые сигналы.</p>}</section><section className={styles.progressCard}><span className={styles.eyebrow}>{path.isFocused ? 'Не хватает по фокусу' : 'Недостаточно подтверждено'}</span><h3>Не пробел, а зона наблюдения</h3>{path.underdocumented.length ? path.underdocumented.map((item) => <div className={styles.progressSignal} key={item.id}><strong>{item.title}</strong><span>мало записей</span></div>) : <p className={styles.muted}>{path.isFocused ? 'По выбранному фокусу уже есть записи.' : 'Пробелов не найдено.'}</p>}</section></div><section className={styles.panel}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>{path.isFocused ? 'Фокус этого цикла' : 'Следующий фокус'}</span><h3>1–3 направления</h3></div><button className={styles.aiMiniButton} type="button" disabled={busy === 'growth_guidance'} onClick={() => void onAi()}>{busy === 'growth_guidance' ? 'Эскада думает…' : '✦ Что развивать дальше?'}</button></div><div className={styles.directionGrid}>{path.directions.map((item) => <article key={item.competencyId}><strong>{item.title}</strong><p>{item.criterion}</p><button type="button" className={styles.textButton} onClick={() => { const competency = competencyById(item.competencyId); if (competency) onCreateIdea(competency) }}>Создать идею</button></article>)}</div>{error && <p className={styles.aiError}>{error}</p>}</section>{guidance && <AiGuidancePanel guidance={guidance} />}</> : <ScaleReference profile={profile} activeCompetencies={activeCompetencies} customScale={customScale} onCreateIdea={onCreateIdea} onUploadScale={onUploadScale} onApplyScale={onApplyScale} onDiscardScale={onDiscardScale} />}</div>
 }
 
-function ScaleReference({ profile, onCreateIdea }: { profile: Profile; onCreateIdea: (competency: Competency) => void }) {
+function FocusManager({ activeCompetencies, focusCompetencyIds, onSetFocus }: { activeCompetencies: Competency[]; focusCompetencyIds: string[]; onSetFocus: (competencyIds: string[]) => void }) {
+  const [expanded, setExpanded] = useState(false)
+  // Local draft so picking chips doesn't write to state on every click —
+  // only "Сохранить" commits it, matching the pattern in CustomScaleManager.
+  const [draft, setDraft] = useState<string[]>(focusCompetencyIds)
+  const validFocus = focusCompetencyIds.filter((id) => activeCompetencies.some((item) => item.id === id))
+
+  function openEditor() {
+    setDraft(focusCompetencyIds)
+    setExpanded(true)
+  }
+
+  function toggle(id: string) {
+    setDraft((current) => {
+      if (current.includes(id)) return current.filter((item) => item !== id)
+      if (current.length >= 3) return current
+      return [...current, id]
+    })
+  }
+
+  function save() {
+    onSetFocus(draft)
+    setExpanded(false)
+  }
+
+  return <section className={styles.panel}>
+    <div className={styles.sectionHeader}>
+      <div><span className={styles.eyebrow}>Личный фокус</span><h3>{validFocus.length ? `На чём я расту: ${validFocus.map((id) => activeCompetencies.find((item) => item.id === id)?.shortTitle).filter(Boolean).join(', ')}` : 'Фокус не выбран'}</h3></div>
+      <button className={styles.aiMiniButton} type="button" onClick={openEditor}>{validFocus.length ? 'Изменить фокус' : 'Выбрать фокус'}</button>
+    </div>
+    {!validFocus.length && !expanded && <p className={styles.muted}>Без фокуса «Рост» показывает все направления сразу. Выберите 1–3 компетенции — новые идеи и wins будут по умолчанию привязываться к ним.</p>}
+    {expanded && <div className={styles.modalForm}>
+      <p className={styles.muted}>Выберите до 3 компетенций, на которых сфокусируетесь в этом цикле. Это ваш выбор — Эскада может только подсказать (кнопка «Что развивать дальше?» ниже), но не выбирает за вас.</p>
+      <div className={styles.competencyChipGrid}>{activeCompetencies.map((competency) => <button key={competency.id} type="button" className={draft.includes(competency.id) ? styles.chipActive : styles.chip} disabled={!draft.includes(competency.id) && draft.length >= 3} onClick={() => toggle(competency.id)}>{competency.shortTitle}</button>)}</div>
+      <div className={styles.newIdeaWinRow}>
+        <button type="button" className={styles.secondaryButton} onClick={() => setExpanded(false)}>Отменить</button>
+        <button type="button" className={styles.textButton} onClick={() => { setDraft([]); onSetFocus([]); setExpanded(false) }}>Сбросить фокус</button>
+        <button type="button" className={styles.primaryButton} onClick={save}>Сохранить</button>
+      </div>
+    </div>}
+  </section>
+}
+
+function ScaleReference({ profile, activeCompetencies, customScale, onCreateIdea, onUploadScale, onApplyScale, onDiscardScale }: { profile: Profile; activeCompetencies: Competency[]; customScale: CustomCompetencyScale | null; onCreateIdea: (competency: Competency) => void; onUploadScale: (rawInput: string, sourceType: 'text' | 'file', sourceFileName: string | null, title: string) => CustomCompetencyScale | null; onApplyScale: (scale: CustomCompetencyScale) => void; onDiscardScale: () => void }) {
   const target = nextLevel(profile.currentLevel)
-  return <section className={styles.competencyGrid}>{competencies.map((competency, index) => <article className={styles.competencyCard} key={competency.id}><div className={styles.competencyNumber}>{String(index + 1).padStart(2, '0')}</div><div><span className={styles.domainBadge}>{competency.shortTitle}</span><h3>{competency.title}</h3><p>{competency.summary}</p><div className={styles.expectationColumns}><section><small>Ожидания сейчас · {levelLabels[profile.currentLevel]}</small><ul>{competency.levels[profile.currentLevel].map((criterion) => <li key={criterion.id}>{criterion.text}</li>)}</ul></section><section><small>{target ? `Следующий уровень · ${levelLabels[target]}` : 'Усиление влияния'}</small><ul>{competency.levels[target ?? profile.currentLevel].map((criterion) => <li key={criterion.id}>{criterion.text}</li>)}</ul></section></div><button className={styles.textButton} type="button" onClick={() => onCreateIdea(competency)}>Создать growth idea</button></div></article>)}</section>
+  const isCustomActive = customScale?.status === 'ready' && Boolean(customScale.competencies?.length)
+  return <section className={styles.pageStack}>
+    <CustomScaleManager customScale={customScale} isCustomActive={isCustomActive} onUploadScale={onUploadScale} onApplyScale={onApplyScale} onDiscardScale={onDiscardScale} />
+    <section className={styles.competencyGrid}>{activeCompetencies.map((competency, index) => <article className={styles.competencyCard} key={competency.id}><div className={styles.competencyNumber}>{String(index + 1).padStart(2, '0')}</div><div><span className={styles.domainBadge}>{competency.shortTitle}</span><h3>{competency.title}</h3><p>{competency.summary}</p><div className={styles.expectationColumns}><section><small>Ожидания сейчас · {levelLabels[profile.currentLevel]}</small><ul>{competency.levels[profile.currentLevel].map((criterion) => <li key={criterion.id}>{criterion.text}</li>)}</ul></section><section><small>{target ? `Следующий уровень · ${levelLabels[target]}` : 'Усиление влияния'}</small><ul>{competency.levels[target ?? profile.currentLevel].map((criterion) => <li key={criterion.id}>{criterion.text}</li>)}</ul></section></div><button className={styles.textButton} type="button" onClick={() => onCreateIdea(competency)}>Создать growth idea</button></div></article>)}</section>
+  </section>
+}
+
+function CustomScaleManager({ customScale, isCustomActive, onUploadScale, onApplyScale, onDiscardScale }: { customScale: CustomCompetencyScale | null; isCustomActive: boolean; onUploadScale: (rawInput: string, sourceType: 'text' | 'file', sourceFileName: string | null, title: string) => CustomCompetencyScale | null; onApplyScale: (scale: CustomCompetencyScale) => void; onDiscardScale: () => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const [title, setTitle] = useState('Моя шкала')
+  const [text, setText] = useState('')
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [preview, setPreview] = useState<CustomCompetencyScale | null>(null)
+  const [confirmText, setConfirmText] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => { setText(String(reader.result ?? '')); setFileName(file.name) }
+    reader.readAsText(file)
+    event.target.value = ''
+  }
+
+  function handleParse() {
+    const sourceType = fileName ? 'file' : 'text'
+    const result = onUploadScale(text, sourceType, fileName, title)
+    setPreview(result)
+  }
+
+  function handleApply() {
+    if (!preview || preview.status !== 'ready') return
+    onApplyScale(preview)
+    setExpanded(false)
+    setPreview(null)
+    setConfirmText('')
+    setText('')
+    setFileName(null)
+  }
+
+  return <section className={styles.panel}>
+    <div className={styles.sectionHeader}>
+      <div><span className={styles.eyebrow}>Источник шкалы</span><h3>{isCustomActive ? `Своя шкала · ${customScale?.title}` : 'Шкала Bitrix24 (по умолчанию)'}</h3></div>
+      <button className={styles.aiMiniButton} type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? 'Свернуть' : (isCustomActive ? 'Загрузить другую' : 'Загрузить свою шкалу')}</button>
+    </div>
+    {isCustomActive && !expanded && <p className={styles.muted}>Активна пользовательская шкала ({customScale?.competencies?.length ?? 0} компетенций). <button type="button" className={styles.textButton} onClick={onDiscardScale}>Вернуться к шкале Bitrix24</button></p>}
+    {expanded && <div className={styles.modalForm}>
+      <p className={styles.aiCaveat}>{MOCK_PARSER_DISCLAIMER} Полная замена шкалы обнулит текущие идеи, wins, отчёты и фокус — история цикла начнётся заново.</p>
+      <label className={styles.field}>Название шкалы<input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+      <label className={styles.field}>Вставьте инструкции<textarea value={text} onChange={(event) => { setText(event.target.value); setFileName(null) }} placeholder={'Например:\n# Название компетенции\n- Специалист: ...\n- Senior: ...\n- Lead: ...'} rows={8} /></label>
+      <div className={styles.newIdeaWinRow}>
+        <button type="button" className={styles.secondaryButton} onClick={() => fileInputRef.current?.click()}>{fileName ? `Файл: ${fileName}` : 'Загрузить .txt/.md файл'}</button>
+        <button type="button" className={styles.primaryButton} disabled={text.trim().length < CUSTOM_SCALE_MIN_CHARS} onClick={handleParse}>Разобрать через ИИ (мокап)</button>
+      </div>
+      <input ref={fileInputRef} className={styles.hiddenInput} type="file" accept=".txt,.md,text/plain,text/markdown" onChange={handleFile} />
+      {preview && preview.status === 'error' && <p className={styles.aiError}>{preview.errorMessage}</p>}
+      {preview && preview.status === 'ready' && <div className={styles.savedReports}>
+        <p className={styles.muted}>Разобрано: {preview.competencies?.length ?? 0} компетенций.</p>
+        {preview.parseNotes.map((note, index) => <p key={index} className={styles.aiCaveat}>{note}</p>)}
+        <ul>{preview.competencies?.map((competency) => <li key={competency.id}><strong>{competency.title}</strong> — {competency.levels.specialist.length + competency.levels.senior.length + competency.levels.lead.length} критериев</li>)}</ul>
+        <label className={styles.field}>Чтобы применить и обнулить текущий цикл, введите ПРИМЕНИТЬ<input value={confirmText} onChange={(event) => setConfirmText(event.target.value)} placeholder="ПРИМЕНИТЬ" /></label>
+        <div className={styles.newIdeaWinRow}>
+          <button type="button" className={styles.secondaryButton} onClick={() => setPreview(null)}>Отменить</button>
+          <button type="button" className={styles.primaryButton} disabled={confirmText.trim().toUpperCase() !== 'ПРИМЕНИТЬ'} onClick={handleApply}>Применить и начать цикл заново</button>
+        </div>
+      </div>}
+    </div>}
+  </section>
 }
 
 function NewIdeaModal({ idea, onClose, onSave, onPromote }: {

@@ -32,4 +32,7 @@ export function noteToIdea(note: Record<string, unknown>, currentLevel?: string)
 export function migrateIdeaStatus(status: string | undefined, workItems?: Array<{ status: string }>): string
 export function winGapHints(win: Record<string, unknown>): string[]
 export function deleteWin(state: Record<string, unknown>, winId: string): Record<string, unknown>
-export function computeGrowthPath(state: Record<string, unknown>, competencies: unknown[]): Record<string, unknown>
+export function computeGrowthPath(state: Record<string, unknown>, competencies: unknown[], focusCompetencyIds?: string[]): Record<string, unknown>
+export function normalizeCustomCompetencyScale(scale: unknown): Record<string, unknown> | null
+export function normalizeFocusCompetencyIds(ids: unknown): string[]
+export function resetCycleForNewScale(state: Record<string, unknown>, customCompetencyScale: unknown): Record<string, unknown>

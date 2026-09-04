@@ -1,10 +1,5 @@
-import {
-  allCriteria,
-  competencyKeywords,
-  knowledgeBaseVersion,
-  levelLabels,
-  nextLevel,
-} from './competency-knowledge.mjs'
+import { levelLabels, nextLevel } from './competency-knowledge.mjs'
+import { deriveActiveScale } from './active-scale.mjs'
 
 export const AI_ACTIONS = ['idea_review', 'win_rewrite', 'report_draft', 'report_review', 'growth_guidance']
 const MAX_CONTEXT_CHARS = 24000
@@ -30,7 +25,7 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))]
 }
 
-function inferCompetencyIds(text, explicitIds = []) {
+function inferCompetencyIds(text, competencyKeywords, explicitIds = []) {
   const haystack = normalize(text)
   const scored = Object.entries(competencyKeywords).map(([id, words]) => ({
     id,
@@ -52,13 +47,18 @@ export function validateAiRequest(payload) {
   return payload
 }
 
-export function retrieveCriteria(payload) {
+// v32: activeScale (from active-scale.mjs's deriveActiveScale) replaces the
+// static allCriteria/competencyKeywords/knowledgeBaseVersion imports, so
+// retrieval reads whichever scale — default or a user's uploaded custom one —
+// is currently active.
+export function retrieveCriteria(payload, activeScale = deriveActiveScale(null)) {
+  const { allCriteria, competencyKeywords, knowledgeBaseVersion } = activeScale
   const text = flattenText(payload.artifact ?? payload.context ?? '')
   const explicit = unique([
     ...(payload.competencyIds ?? []),
     ...((payload.artifact && payload.artifact.competencyIds) ?? []),
   ])
-  const competencyIds = inferCompetencyIds(text, explicit)
+  const competencyIds = inferCompetencyIds(text, competencyKeywords, explicit)
   const currentLevel = payload.profile.currentLevel
   const targetLevel = nextLevel(currentLevel)
   const allowedLevels = targetLevel ? [currentLevel, targetLevel] : [currentLevel]

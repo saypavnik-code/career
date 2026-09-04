@@ -8,7 +8,7 @@
     "start": "next start",
     "test:career": "npm run test:escada",
     "verify:career": "npm run verify:escada",
-    "test:escada": "node --test tests/escada-v8.test.mjs tests/escada-v10.test.mjs",
+    "test:escada": "node --test tests/escada-v8.test.mjs tests/escada-v10.test.mjs tests/escada-v11.test.mjs tests/escada-v12.test.mjs tests/escada-v13.test.mjs",
     "verify:escada": "npm run test:escada && next build",
     "verify:pages": "npm run test:escada && next build"
   },

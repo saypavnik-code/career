@@ -8,6 +8,8 @@ out/
 dist/
 build/
 coverage/
+__pycache__/
+*.pyc
 *.tsbuildinfo
 .env
 .env.local

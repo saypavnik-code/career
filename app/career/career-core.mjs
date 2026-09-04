@@ -409,6 +409,8 @@ export function createDefaultState(now = new Date()) {
     ideas: [],
     wins: [],
     reports: [],
+    customCompetencyScale: null,
+    focusCompetencyIds: [],
   }
 }
 
@@ -629,6 +631,58 @@ function normalizeWin(win) {
   }
 }
 
+export function normalizeCustomCompetencyScale(scale) {
+  if (!scale || typeof scale !== 'object') return null
+  const status = ['draft', 'parsing', 'ready', 'error'].includes(scale.status) ? scale.status : 'draft'
+  return {
+    id: scale.id ?? createId('custom-scale'),
+    title: scale.title ?? 'Моя шкала',
+    sourceType: scale.sourceType === 'file' ? 'file' : 'text',
+    sourceFileName: scale.sourceFileName ?? null,
+    rawInput: typeof scale.rawInput === 'string' ? scale.rawInput : '',
+    status,
+    competencies: Array.isArray(scale.competencies) ? scale.competencies : null,
+    knowledgeBaseVersion: scale.knowledgeBaseVersion ?? null,
+    parseNotes: Array.isArray(scale.parseNotes) ? scale.parseNotes : [],
+    errorMessage: scale.errorMessage ?? null,
+    createdAt: scale.createdAt ?? new Date().toISOString(),
+    isMock: true,
+  }
+}
+
+// v33: personal focus — 1-3 competency ids the person chose to develop this
+// cycle. Structural validation only (array of non-empty strings, capped at
+// 3, deduped) — checking the ids actually exist in the active scale is a
+// UI-layer concern (active-scale.mjs / deriveActiveScale), since migration
+// has no access to "which scale is active right now".
+export function normalizeFocusCompetencyIds(ids) {
+  if (!Array.isArray(ids)) return []
+  const cleaned = ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
+  return [...new Set(cleaned)].slice(0, 3)
+}
+
+// Applying a new custom competency scale invalidates every artifact that was
+// tagged against the previous scale (ids like "strategic-thinking.senior.02"
+// only mean something relative to one specific scale). Rather than leave
+// dangling competencyIds around, the whole working cycle restarts: notes,
+// ideas, wins, reports and the personal focus selection are all cleared.
+// The custom scale itself and the profile (name/role/market/level) survive.
+export function resetCycleForNewScale(state, customCompetencyScale) {
+  const base = createDefaultState()
+  return {
+    ...base,
+    version: SCHEMA_VERSION,
+    onboardingComplete: state?.onboardingComplete ?? false,
+    profile: { ...base.profile, ...(state?.profile ?? {}) },
+    notes: [],
+    ideas: [],
+    wins: [],
+    reports: [],
+    customCompetencyScale: normalizeCustomCompetencyScale(customCompetencyScale),
+    focusCompetencyIds: [],
+  }
+}
+
 function migrateLegacyTask(task, fallbackLevel) {
   return normalizeIdea({
     id: `legacy-${task.id ?? createId('idea')}`,
@@ -666,6 +720,8 @@ export function migrateState(raw, fallback = createDefaultState()) {
       ideas: migratedIdeas,
       wins: raw.wins.map(normalizeWin),
       reports: Array.isArray(raw.reports) ? raw.reports : [],
+      customCompetencyScale: normalizeCustomCompetencyScale(raw.customCompetencyScale),
+      focusCompetencyIds: normalizeFocusCompetencyIds(raw.focusCompetencyIds),
     }
   }
 
@@ -842,7 +898,17 @@ export function deleteWin(state, winId) {
   }
 }
 
-export function computeGrowthPath(state, competencies) {
+// v33: focusCompetencyIds (1-3 ids the person chose to develop this cycle,
+// see normalizeFocusCompetencyIds) is optional. When present and it actually
+// matches competencies in whatever scale was passed in, "underdocumented"
+// and "directions" narrow to just the focus so the Growth view doesn't show
+// all 12 (or however many a custom scale has) at once. strongSignals stays
+// scored across everything — real progress shouldn't be hidden just because
+// it happened outside the current focus. If focus references ids that don't
+// exist in the active scale (e.g. left over from a scale that was since
+// replaced), it's treated as if no focus were set rather than producing an
+// empty view.
+export function computeGrowthPath(state, competencies, focusCompetencyIds = []) {
   const profileLevel = state?.profile?.currentLevel ?? 'specialist'
   const targetLevel = profileLevel === 'specialist' ? 'senior' : profileLevel === 'senior' ? 'lead' : null
   const artifacts = [...(state?.ideas ?? []), ...(state?.wins ?? [])]
@@ -851,8 +917,18 @@ export function computeGrowthPath(state, competencies) {
   for (const item of artifacts) for (const id of item.competencyIds ?? []) competencyCounts.set(id, (competencyCounts.get(id) ?? 0) + (item.impact || item.evidence ? 2 : 1))
   const sorted = [...competencyCounts.entries()].sort((a, b) => b[1] - a[1])
   const strongCompetencies = sorted.slice(0, 3).map(([id]) => competencies.find((item) => item.id === id)).filter(Boolean)
-  const weakCompetencies = competencies.filter((item) => !competencyCounts.has(item.id)).slice(0, 3)
-  const directions = (targetLevel ? (strongCompetencies.length ? strongCompetencies : competencies.slice(0, 3)) : strongCompetencies)
+
+  const focusCompetencies = focusCompetencyIds
+    .map((id) => competencies.find((item) => item.id === id))
+    .filter(Boolean)
+  const hasValidFocus = focusCompetencies.length > 0
+  const scopedCompetencies = hasValidFocus ? focusCompetencies : competencies
+
+  const weakCompetencies = scopedCompetencies.filter((item) => !competencyCounts.has(item.id)).slice(0, 3)
+  const directionSource = hasValidFocus
+    ? focusCompetencies
+    : (targetLevel ? (strongCompetencies.length ? strongCompetencies : competencies.slice(0, 3)) : strongCompetencies)
+  const directions = directionSource
     .slice(0, 3)
     .map((competency) => {
       const criteria = competency.levels[targetLevel ?? profileLevel] ?? []
@@ -866,5 +942,6 @@ export function computeGrowthPath(state, competencies) {
     underdocumented: weakCompetencies.map((item) => ({ id: item.id, title: item.shortTitle })),
     directions,
     evidenceCount: (state?.wins ?? []).filter((win) => String(win.evidence ?? '').trim()).length,
+    isFocused: hasValidFocus,
   }
 }

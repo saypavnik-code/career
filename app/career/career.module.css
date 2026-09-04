@@ -353,6 +353,11 @@
 .segmentedControl { display: inline-grid; grid-template-columns: repeat(2, auto); width: fit-content; gap: 5px; padding: 5px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,0.78); }
 .segmentedControl button { border: 0; border-radius: 10px; background: transparent; color: var(--muted); padding: 10px 14px; font-size: 11px; font-weight: 800; }
 .segmentedControl .segmentActive { background: var(--navy); color: white; box-shadow: 0 8px 18px rgba(21,23,42,0.16); }
+.competencyChipGrid { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip, .chipActive { border-radius: 999px; padding: 9px 16px; font-size: 11px; font-weight: 800; border: 1px solid var(--line); background: rgba(255,255,255,0.78); color: var(--ink); transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease; }
+.chip:hover:not(:disabled) { transform: translateY(-1px); background: rgba(110,92,246,.1); }
+.chip:disabled { opacity: 0.4; cursor: not-allowed; }
+.chipActive { background: var(--navy); color: white; border-color: var(--navy); box-shadow: 0 8px 18px rgba(21,23,42,0.16); }
 .progressHero { border-radius: 28px; padding: 28px; background: var(--navy); color: white; display: grid; grid-template-columns: minmax(220px, 0.65fr) minmax(0, 1.35fr); gap: 26px; align-items: center; }
 .progressHero h2 { margin: 8px 0 6px; font-size: clamp(34px, 5vw, 54px); letter-spacing: -0.055em; }
 .progressHero p { margin: 0; color: #adb3c9; font-size: 11px; }

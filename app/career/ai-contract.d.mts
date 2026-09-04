@@ -3,7 +3,7 @@ export interface AiPayload { action: AiAction; profile: Record<string, unknown>;
 export interface Retrieval { knowledgeBaseVersion: string; currentLevel: string; targetLevel: string | null; competencyIds: string[]; criteria: Array<Record<string, unknown>> }
 export const AI_ACTIONS: AiAction[]
 export function validateAiRequest(payload: unknown): AiPayload
-export function retrieveCriteria(payload: AiPayload): Retrieval
+export function retrieveCriteria(payload: AiPayload, activeScale?: import('./active-scale.mjs').ActiveScale): Retrieval
 export function buildClosedWorldMessages(payload: AiPayload, retrieval: Retrieval): Array<{ role: string; content: string }>
 export function parseAndValidateAiResponse(rawText: unknown, retrieval: Retrieval, action: AiAction): Record<string, unknown>
 export function buildRepairMessages(messages: Array<{ role: string; content: string }>, invalidText: unknown, errorMessage: string): Array<{ role: string; content: string }>

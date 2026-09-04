@@ -20,7 +20,7 @@
 ```bash
 npm ci
 npm run dev          # локальный сервер разработки
-npm run test:escada  # тесты (tests/escada-v8.test.mjs, tests/escada-v10.test.mjs)
+npm run test:escada  # тесты (tests/escada-v8.test.mjs, tests/escada-v10.test.mjs, tests/escada-v11.test.mjs, tests/escada-v12.test.mjs)
 npm run build         # статическая сборка в out/
 ```
 
@@ -49,15 +49,17 @@ app/career/
   CareerDashboard.tsx      — весь UI приложения (client component)
   career.module.css        — дизайн-система August (CSS Modules)
   career-core.mjs           — состояние, миграции localStorage, доменная логика
-  career-data.ts             — компетенции, уровни, статические данные
-  competency-knowledge.mjs   — закрытая база критериев шкалы компетенций
+  career-data.ts             — компетенции, уровни, статические данные (реэкспорт competency-knowledge.mjs)
+  competency-knowledge.mjs   — закрытая база критериев встроенной шкалы компетенций (12×3)
+  custom-scale.mjs           — загрузка и mock-парсинг пользовательской шкалы (v31)
+  active-scale.mjs           — выбор активной шкалы (встроенная или своя) для AI retrieval (v32)
   local-guidance.mjs         — локальный (без внешнего AI) guidance-движок
   ai-contract.mjs             — контракт запроса/ответа для guidance
 docs/
-  ESCADA_PRODUCT_SPEC_V7.md, ESCADA_PRODUCT_SPEC_V8.md — продуктовые спеки
+  ESCADA_PRODUCT_SPEC_V8.md — продуктовая спека
   PRODUCT_CJM_AND_RECOMMENDATIONS.md — CJM пользователя и рекомендации
 tests/
-  escada-v8.test.mjs, escada-v10.test.mjs
+  escada-v8.test.mjs, escada-v10.test.mjs, escada-v11.test.mjs, escada-v12.test.mjs
 ```
 
 ## Принципы продукта

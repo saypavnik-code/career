@@ -1,6 +1,7 @@
 // escada-ui-guidance-v10: deterministic guidance from the supplied competency scale only.
 import { retrieveCriteria } from './ai-contract.mjs'
-import { knowledgeBaseVersion, levelLabels } from './competency-knowledge.mjs'
+import { levelLabels } from './competency-knowledge.mjs'
+import { deriveActiveScale } from './active-scale.mjs'
 
 function asText(value) {
   return typeof value === 'string' ? value.trim() : ''
@@ -247,11 +248,11 @@ function nextStepFor(action, artifact, targetCriterion, currentCriterion) {
   return 'Выберите один следующий шаг и сохраните его в Эскаде.'
 }
 
-export function buildLocalGuidance(action, payload) {
+export function buildLocalGuidance(action, payload, activeScale = deriveActiveScale(null)) {
   const profile = payload?.profile ?? {}
   const artifact = payload?.artifact ?? {}
   const competencyIds = payload?.competencyIds ?? []
-  const retrieval = retrieveCriteria({ action, profile, artifact, competencyIds })
+  const retrieval = retrieveCriteria({ action, profile, artifact, competencyIds }, activeScale)
   const currentCriteria = retrieval.criteria.filter((item) => item.level === retrieval.currentLevel)
   const targetCriteria = retrieval.targetLevel ? retrieval.criteria.filter((item) => item.level === retrieval.targetLevel) : []
   const currentCriterion = currentCriteria[0] ?? retrieval.criteria[0] ?? null
@@ -297,6 +298,6 @@ export function buildLocalGuidance(action, payload) {
     draftMarkdown,
     caveat: 'Подсказка собрана локально только по шкале компетенций и вашим записям. Это ориентир для рефлексии, а не формальная оценка.',
     sources: retrieval.criteria.slice(0, 8).map(sourceFromCriterion),
-    knowledgeBaseVersion,
+    knowledgeBaseVersion: retrieval.knowledgeBaseVersion,
   }
 }

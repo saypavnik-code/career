@@ -26,4 +26,5 @@ export function buildLocalGuidance(
     artifact: Record<string, unknown>
     competencyIds?: string[]
   },
+  activeScale?: import('./active-scale.mjs').ActiveScale,
 ): LocalGuidanceResponse
