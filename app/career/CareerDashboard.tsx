@@ -108,6 +108,10 @@ interface Idea {
   competencyIds: string[]
   levelSignal: LevelKey
   levelReason: string
+  // v37: true only once the person has explicitly confirmed the inferred
+  // level via the accept-chip in IdeaWorkspace. Absent/false means the value
+  // is still an algorithm guess, never a confirmed fact about the record.
+  levelSignalConfirmed: boolean
   behaviorRefs: string[]
   workItems: WorkItem[]
   notes: IdeaNote[]
@@ -127,6 +131,9 @@ interface Win {
   competencyIds: string[]
   behaviorRefs: string[]
   levelSignal: LevelKey
+  // v37: carried over from the source idea at promotion (see
+  // promoteIdeaToWin); false for wins created without a source idea.
+  levelSignalConfirmed: boolean
   sourceIdeaId: string | null
   workSummary: string[]
   noteSummary: string[]
@@ -289,7 +296,7 @@ function newIdea(currentLevel: LevelKey, title = '', defaultCompetencyIds: strin
   const now = new Date().toISOString()
   return {
     id: createId('idea'), title, details: '', nextStep: '', status: 'concept', competencyIds: [...defaultCompetencyIds],
-    levelSignal: inferred.level, levelReason: inferred.reason, behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [],
+    levelSignal: inferred.level, levelReason: inferred.reason, levelSignalConfirmed: false, behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [],
     createdAt: now, updatedAt: now,
   } as Idea
 }
@@ -307,6 +314,7 @@ function emptyWin(defaultCompetencyIds: string[] = []): WinDraft {
     competencyIds: [...defaultCompetencyIds],
     behaviorRefs: [],
     levelSignal: 'specialist',
+    levelSignalConfirmed: false,
     workSummary: [],
     noteSummary: [],
     reportReady: true,
@@ -640,7 +648,16 @@ export default function CareerDashboard() {
     const competencyIds = draft.competencyIds.length ? draft.competencyIds : suggestCompetencyIds(text, competencies, competencyKeywords)
     const inferred = inferLevelSignal(text, state.profile.currentLevel) as { level: LevelKey; reason: string }
     const behaviorRefs = draft.behaviorRefs.length ? draft.behaviorRefs : suggestBehaviorRefs(text, competencyIds, competencies, inferred.level)
-    const prepared = { ...draft, competencyIds, levelSignal: inferred.level, levelReason: inferred.reason, behaviorRefs, updatedAt: now }
+    // v37: a level the person explicitly confirmed must survive save as-is —
+    // recomputing it unconditionally on every save silently discarded the
+    // confirmation. Only recompute (and drop the confirmed flag) when the
+    // confirmed value no longer matches what the current text would infer,
+    // since at that point the confirmation no longer describes this record.
+    const stillMatches = draft.levelSignalConfirmed && draft.levelSignal === inferred.level
+    const levelSignal = stillMatches ? draft.levelSignal : inferred.level
+    const levelReason = stillMatches ? draft.levelReason : inferred.reason
+    const levelSignalConfirmed = stillMatches
+    const prepared = { ...draft, competencyIds, levelSignal, levelReason, levelSignalConfirmed, behaviorRefs, updatedAt: now }
     updateState((current) => ({
       ...current,
       ideas: current.ideas.some((item) => item.id === prepared.id)
@@ -681,7 +698,13 @@ export default function CareerDashboard() {
     const competencyIds = draft.competencyIds.length ? draft.competencyIds : suggestCompetencyIds(text, competencies, competencyKeywords)
     const inferred = inferLevelSignal(text, state.profile.currentLevel) as { level: LevelKey; reason: string }
     const behaviorRefs = draft.behaviorRefs.length ? draft.behaviorRefs : suggestBehaviorRefs(text, competencyIds, competencies, inferred.level)
-    const prepared = { ...draft, competencyIds, levelSignal: inferred.level, behaviorRefs }
+    // v37: same protection as saveIdea — a level carried over confirmed from
+    // the source idea must survive save unless the win's own text no longer
+    // matches it.
+    const stillMatches = draft.levelSignalConfirmed && draft.levelSignal === inferred.level
+    const levelSignal = stillMatches ? draft.levelSignal : inferred.level
+    const levelSignalConfirmed = Boolean(stillMatches)
+    const prepared = { ...draft, competencyIds, levelSignal, levelSignalConfirmed, behaviorRefs }
     updateState((current) => ({
       ...current,
       wins: prepared.id
@@ -1338,6 +1361,14 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
   const text = [draft.title, draft.details, draft.nextStep, ...draft.workItems.map((item) => item.title), ...draft.notes.map((item) => item.text)].join(' ')
   const suggestedCompetencies = suggestCompetencyIds(text, competencies, competencyKeywords)
   const inferred = inferLevelSignal(text, profile.currentLevel) as { level: LevelKey; reason: string }
+  // v37: the confirmation only counts while it still matches what the
+  // current text would infer — if the person keeps editing after
+  // confirming, the confirmed value can silently drift from what the record
+  // now says, so it must re-earn confirmation rather than stay stale.
+  const isLevelSignalConfirmed = draft.levelSignalConfirmed && draft.levelSignal === inferred.level
+  function confirmLevelSignal() {
+    setDraft((current) => ({ ...current, levelSignal: inferred.level, levelReason: inferred.reason, levelSignalConfirmed: true }))
+  }
   const selectedCompetencies = draft.competencyIds.length ? draft.competencyIds : suggestedCompetencies
   const currentExpectations = selectedCompetencies.flatMap((id) => competencyById(id)?.levels[profile.currentLevel].slice(0, 2) ?? []).slice(0, 3)
   const target = nextLevel(profile.currentLevel)
@@ -1375,9 +1406,17 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
       <summary>Детали</summary>
       <div className={styles.artifactDetailsContent}>
         <section className={styles.artifactHint}>
-          <span>Карьерный сигнал</span>
-          <strong>{levelLabels[inferred.level]}</strong>
+          <div className={styles.levelSignalRow}>
+            <div className={styles.levelSignalLabel}>
+              <span>Карьерный сигнал</span>
+              <strong>{levelLabels[inferred.level]}</strong>
+            </div>
+            {isLevelSignalConfirmed
+              ? <span className={styles.levelSignalConfirmedBadge} title="Вы подтвердили этот уровень">✓ Подтверждено</span>
+              : <button type="button" className={styles.levelSignalConfirmButton} onClick={confirmLevelSignal}>Подтвердить</button>}
+          </div>
           <p>{inferred.reason}</p>
+          {!isLevelSignalConfirmed && <p className={styles.levelSignalHintNote}>Это предположение Эскады по тексту записи, а не подтверждённая оценка.</p>}
           {currentExpectations.length > 0 && <details><summary>Ожидания текущего уровня</summary><ul>{currentExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}
           {target && nextExpectations.length > 0 && <details><summary>Как усилить до «{levelLabels[target]}»</summary><ul>{nextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}
         </section>

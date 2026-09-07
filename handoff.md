@@ -101,3 +101,14 @@ v34 (реальный ИИ-парсинг кастомной шкалы) — п�
 - **Deliberately out of scope for this patch** (per product decision, split into v37): the accept/confirm UX for AI-suggested levelSignal/behaviorRefs. Today these are still auto-saved onto ideas/wins with no confirmed-vs-inferred distinction — the math is now honest, but there is still no UI signal to the person that these are algorithm guesses rather than their own confirmed choice.
 - tests/escada-v16.test.mjs covers both fixes with concrete before/after-reproducing cases.
 - Next: v37 — accept-chip UX for AI-suggested competency/level signals (one-click accept-chip on save, per Pavel's product decision), likely introducing a confirmed/inferred distinction on idea/win records.
+
+
+## v37 — Accept-chip for AI-suggested level signal (Fable Patch C, UI half / P0-3 provenance)
+
+- New `levelSignalConfirmed: boolean` on `Idea` and `Win`. Defaults to `false` at every construction site (newIdea, emptyWin, captureToIdea, captureToWinDraft, noteToIdea, demoState fixtures) and for legacy records normalized/migrated without the field.
+- `promoteIdeaToWin` carries the flag from idea to win.
+- `saveIdea`/`saveWin` no longer unconditionally overwrite `levelSignal` on every save — a confirmed value survives save unless the record's current text no longer supports it, in which case the confirmation is treated as stale and reset.
+- `IdeaWorkspace`: the "Карьерный сигнал" panel gained a one-click accept-chip ("Подтвердить" / "✓ Подтверждено"), with a note that an unconfirmed value is Escada's guess, not a confirmed assessment. Editing text after confirming automatically returns to unconfirmed once the live inference diverges.
+- `WinModal` intentionally NOT touched — it doesn't display the level signal at all today, so adding a whole new UI section there was judged out of scope for this patch; `saveWin`'s protection logic still applies once a confirmed idea is promoted.
+- tests/escada-v17.test.mjs covers confirm-survives-save, confirm-resets-on-stale-text, promote-carries-flag, and migration/construction defaults.
+- This closes the Fable roadmap P0-3 provenance gap fully: v36 fixed the math (tie-break, fallback ranking), v37 adds the confirmed/inferred distinction the product's "transparent growth tracking" promise depends on.

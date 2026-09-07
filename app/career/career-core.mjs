@@ -211,6 +211,10 @@ export function promoteIdeaToWin(idea, patch = {}) {
     competencyIds: patch.competencyIds ?? idea.competencyIds ?? [],
     behaviorRefs: patch.behaviorRefs ?? idea.behaviorRefs ?? [],
     levelSignal: patch.levelSignal ?? idea.levelSignal ?? 'specialist',
+    // v37: a confirmed level on the source idea should stay confirmed on the
+    // win it becomes — the person already told us it was right. saveWin
+    // still re-validates against the win's own text before persisting.
+    levelSignalConfirmed: patch.levelSignalConfirmed ?? idea.levelSignalConfirmed ?? false,
     sourceIdeaId: idea.id,
     workSummary: patch.workSummary ?? completedWork,
     noteSummary: patch.noteSummary ?? recentNotes,
@@ -459,6 +463,7 @@ export function demoState(now = new Date()) {
         status: 'in_progress',
         competencyIds: ['strategic-thinking', 'pr-reputation', 'analytics'],
         levelSignal: 'senior',
+        levelSignalConfirmed: false,
         levelReason: 'Есть самостоятельная гипотеза, проверка через рынок и измеримый результат.',
         behaviorRefs: ['strategic-thinking:senior:1', 'pr-reputation:senior:1'],
         workItems: [
@@ -479,6 +484,7 @@ export function demoState(now = new Date()) {
         status: 'concept',
         competencyIds: ['analytics', 'paid-acquisition'],
         levelSignal: 'senior',
+        levelSignalConfirmed: false,
         levelReason: 'Идея про оптимизацию процесса и самостоятельный эксперимент.',
         behaviorRefs: ['analytics:senior:0'],
         workItems: [],
@@ -500,6 +506,7 @@ export function demoState(now = new Date()) {
         competencyIds: ['paid-acquisition', 'analytics', 'ownership'],
         behaviorRefs: ['paid-acquisition:senior:0', 'analytics:senior:1'],
         levelSignal: 'senior',
+        levelSignalConfirmed: false,
         sourceIdeaId: null,
         workSummary: ['Провёл аудит поисковых запросов', 'Разделил кампании по намерению', 'Собрал план A/B-тестов'],
         noteSummary: [],
@@ -518,6 +525,7 @@ export function demoState(now = new Date()) {
         competencyIds: ['content-marketing', 'smm-community', 'intercultural'],
         behaviorRefs: ['content-marketing:lead:1'],
         levelSignal: 'lead',
+        levelSignalConfirmed: false,
         sourceIdeaId: null,
         workSummary: ['Собрал лучшие практики', 'Провёл тест форматов', 'Оформил единый гайд'],
         noteSummary: [],
@@ -620,6 +628,10 @@ function normalizeIdea(idea, fallbackLevel = 'specialist') {
     competencyIds: Array.isArray(idea?.competencyIds) ? idea.competencyIds : [],
     levelSignal: idea?.levelSignal ?? inferred.level,
     levelReason: idea?.levelReason ?? inferred.reason,
+    // v37: existing records predate this field — default to false (not
+    // confirmed) rather than assuming past auto-inferred values were ever
+    // explicitly reviewed by the person.
+    levelSignalConfirmed: Boolean(idea?.levelSignalConfirmed),
     behaviorRefs: Array.isArray(idea?.behaviorRefs) ? idea.behaviorRefs : [],
     workItems: Array.isArray(idea?.workItems) ? idea.workItems : [],
     notes: Array.isArray(idea?.notes) ? idea.notes : [],
@@ -641,6 +653,7 @@ function normalizeWin(win) {
     competencyIds: Array.isArray(win?.competencyIds) ? win.competencyIds : [],
     behaviorRefs: Array.isArray(win?.behaviorRefs) ? win.behaviorRefs : [],
     levelSignal: win?.levelSignal ?? 'specialist',
+    levelSignalConfirmed: Boolean(win?.levelSignalConfirmed),
     sourceIdeaId: win?.sourceIdeaId ?? null,
     workSummary: Array.isArray(win?.workSummary) ? win.workSummary : [],
     noteSummary: Array.isArray(win?.noteSummary) ? win.noteSummary : [],
@@ -800,13 +813,13 @@ export function captureToIdea(capture, currentLevel = 'specialist') {
   const now = new Date().toISOString()
   return {
     id: createId('idea'), title: capture?.text ?? '', details: '', nextStep: '', status: 'concept', competencyIds: [],
-    levelSignal: inferred.level, levelReason: inferred.reason, behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [],
+    levelSignal: inferred.level, levelReason: inferred.reason, levelSignalConfirmed: false, behaviorRefs: [], workItems: [], notes: [], evidenceNotes: [],
     createdAt: now, updatedAt: now,
   }
 }
 
 export function captureToWinDraft(capture) {
-  return { sourceIdeaId: null, sourceContext: '', title: capture?.text ?? '', impact: '', evidence: '', metrics: '', confirmedBy: '', date: todayIso(), competencyIds: [], behaviorRefs: [], levelSignal: 'specialist', workSummary: [], noteSummary: [], reportReady: true }
+  return { sourceIdeaId: null, sourceContext: '', title: capture?.text ?? '', impact: '', evidence: '', metrics: '', confirmedBy: '', date: todayIso(), competencyIds: [], behaviorRefs: [], levelSignal: 'specialist', levelSignalConfirmed: false, workSummary: [], noteSummary: [], reportReady: true }
 }
 
 // --- Note: the quick-thought unit (AI-First roadmap section 4.3) ----------
@@ -894,6 +907,7 @@ export function noteToIdea(note, currentLevel = 'specialist') {
     competencyIds: [],
     levelSignal: inferred.level,
     levelReason: inferred.reason,
+    levelSignalConfirmed: false,
     behaviorRefs: [],
     workItems: [],
     notes: [],
