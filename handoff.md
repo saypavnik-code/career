@@ -71,3 +71,14 @@ v34 (реальный ИИ-парсинг кастомной шкалы) — п�
 
 ## Стиль общения
 Английский для мышления и кода (по явному запросу Павла с этой сессии — "Continue. Think and code in English"), русский — для содержательных ответов пользователю, если явно не указано иное. Технический код — на английском внутри файлов, UI — на русском. При продуктовых вопросах — сначала анализ реального кода (grep/view), потом рассуждения.
+
+
+## v34 — Guarded import + hydration safety (Fable Patch A / P0-1)
+
+- `isEscadaState(raw)` added to `career-core.mjs`; `migrateState` now refuses garbage input (`{}`, `[]`, `{version: 9}` with no recognizable shape) and returns the fallback unchanged instead of merging unknown keys.
+- Corrupt primary storage key is preserved under `escada:corrupt:<iso>` rather than silently falling back to an older key.
+- `escada:backup:<iso>` rotation (last 3) written before hydration overwrites and before any import overwrite.
+- `importData` now requires an explicit confirm with concrete idea/win/report counts before replacing state.
+- `localStorage.setItem` persistence effect wrapped in try/catch; quota errors surface a persistent recovery banner instead of failing silently.
+- **Note on this document:** this file had drifted — it described a baseline of `f65cfd6` (post-v28) while `origin/main` was actually at `20977ed`, already containing v31-v33 (custom scale, AI retrieval on active scale, personal focus). Confirmed against `git log` on 2026-09-04. This file is being kept in sync with actual commits from v34 onward.
+- Next: v35 — Fable roadmap Patch B (P0-2: retrieval admission filter).

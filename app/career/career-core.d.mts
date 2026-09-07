@@ -20,6 +20,7 @@ export function isIdeaReadyForWin(idea: Record<string, unknown>, wins: Record<st
 export function buildCoachNotes(state: Record<string, unknown>, competencies: unknown[], now?: Date): unknown[]
 export function createDefaultState(now?: Date): Record<string, unknown>
 export function demoState(now?: Date): Record<string, unknown>
+export function isEscadaState(raw: unknown): boolean
 export function migrateState(raw: unknown, fallback?: Record<string, unknown>): Record<string, unknown>
 export function classifyCapture(text: string): { kind: 'idea' | 'win' | 'note'; reason: string }
 export function createCapture(text: string, now?: Date): Record<string, unknown>

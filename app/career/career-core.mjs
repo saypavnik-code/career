@@ -696,8 +696,28 @@ function migrateLegacyTask(task, fallbackLevel) {
   }, fallbackLevel)
 }
 
+// v34: structural gate for anything that will be merged into live state
+// (import or hydration). Deliberately loose — this is not full schema
+// validation, just enough to reject garbage (`{}`, `[]`, `{version: 9}`
+// with no recognizable shape) before migrateState starts spreading keys
+// from it into the app's state. Legacy v1-v4 shapes (no top-level
+// `ideas`/`wins` arrays, but `tasks` or `profile`) are handled separately
+// below and are NOT expected to pass this check.
+export function isEscadaState(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false
+  if (!Array.isArray(raw.ideas) || !Array.isArray(raw.wins)) return false
+  if (raw.notes !== undefined && !Array.isArray(raw.notes)) return false
+  if (raw.reports !== undefined && !Array.isArray(raw.reports)) return false
+  return true
+}
+
 export function migrateState(raw, fallback = createDefaultState()) {
   if (!raw || typeof raw !== 'object') return fallback
+  // v34: garbage input (not the current shape, and not a recognizable
+  // legacy shape either) must not silently become the new state — bail
+  // out to fallback rather than spreading unknown keys forward.
+  const hasLegacyShape = Array.isArray(raw.tasks) || Boolean(raw.profile)
+  if (!isEscadaState(raw) && !hasLegacyShape) return fallback
   const fallbackLevel = raw?.profile?.currentLevel ?? fallback.profile.currentLevel
 
   if (Array.isArray(raw.ideas) && Array.isArray(raw.wins)) {

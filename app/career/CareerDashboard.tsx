@@ -31,6 +31,7 @@ import {
   createId,
   createNote,
   deleteWin as deleteWinFromState,
+  isEscadaState,
   isIdeaReadyForWin,
   updateNote as updateNoteFromState,
   demoState,
@@ -235,6 +236,34 @@ function safeJsonParse(value: string | null) {
   try { return JSON.parse(value) as Record<string, unknown> } catch { return null }
 }
 
+const BACKUP_KEY_PREFIX = 'escada:backup:'
+const CORRUPT_KEY_PREFIX = 'escada:corrupt:'
+const MAX_BACKUPS = 3
+
+// v34: called before any full-state replacement (hydration load, import)
+// so there is always a way back if the replacement turns out to be wrong.
+// Keeps only the most recent MAX_BACKUPS snapshots.
+function writeBackup(snapshot: unknown) {
+  try {
+    const key = `${BACKUP_KEY_PREFIX}${new Date().toISOString()}`
+    window.localStorage.setItem(key, JSON.stringify(snapshot))
+    const backupKeys = Object.keys(window.localStorage)
+      .filter((item) => item.startsWith(BACKUP_KEY_PREFIX))
+      .sort()
+    const stale = backupKeys.slice(0, Math.max(0, backupKeys.length - MAX_BACKUPS))
+    stale.forEach((item) => window.localStorage.removeItem(item))
+  } catch {
+    // Backup is best-effort — a full disk should not block the primary write.
+  }
+}
+
+function stateCounts(value: { ideas?: unknown; wins?: unknown; reports?: unknown } | null | undefined) {
+  const ideas = Array.isArray(value?.ideas) ? value!.ideas.length : 0
+  const wins = Array.isArray(value?.wins) ? value!.wins.length : 0
+  const reports = Array.isArray(value?.reports) ? value!.reports.length : 0
+  return { ideas, wins, reports }
+}
+
 function formatDate(value: string) {
   if (!value) return 'Без даты'
   return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
@@ -311,6 +340,9 @@ export default function CareerDashboard() {
   const [isOffline, setIsOffline] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [notice, setNotice] = useState('')
+  // v34: distinct from `notice` (which auto-dismisses in ~2.8s) —
+  // recovery situations need a banner the user actively closes.
+  const [recoveryBanner, setRecoveryBanner] = useState('')
   const [periodStart, setPeriodStart] = useState(dateDaysAgo(90))
   const [periodEnd, setPeriodEnd] = useState(todayIso())
   const [selectedWinIds, setSelectedWinIds] = useState<string[]>([])
@@ -325,9 +357,33 @@ export default function CareerDashboard() {
   const importRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    const current = safeJsonParse(window.localStorage.getItem(STORAGE_KEY))
+    const rawCurrentValue = window.localStorage.getItem(STORAGE_KEY)
+    const current = safeJsonParse(rawCurrentValue)
+    // v34: a primary key that exists but doesn't parse into a recognizable
+    // Escada shape is corrupt, not merely "older" — falling back to a
+    // previous storage key silently would quietly discard everything the
+    // person has done since that older key was last written. Preserve the
+    // corrupt payload under its own key and surface a recovery banner
+    // instead of guessing.
+    const isCorrupt = rawCurrentValue !== null && (current === null || (!isEscadaState(current) && !current.tasks && !current.profile))
+    if (isCorrupt && rawCurrentValue !== null) {
+      try {
+        window.localStorage.setItem(`${CORRUPT_KEY_PREFIX}${new Date().toISOString()}`, rawCurrentValue)
+      } catch {
+        // best-effort preservation of the corrupt payload
+      }
+    }
     const previous = PREVIOUS_STORAGE_KEYS.map((key) => safeJsonParse(window.localStorage.getItem(key))).find(Boolean) ?? null
-    const loaded = asState(migrateState(current ?? previous, createDefaultState()))
+    const source = isCorrupt ? previous : (current ?? previous)
+    const loaded = asState(migrateState(source, createDefaultState()))
+    if (isCorrupt) {
+      writeBackup(loaded)
+      setRecoveryBanner(
+        previous
+          ? 'Не удалось прочитать последние данные — загружена предыдущая сохранённая версия. Повреждённые данные сохранены и доступны для экспорта.'
+          : 'Не удалось прочитать сохранённые данные — начат чистый профиль. Повреждённые данные сохранены и доступны для экспорта.'
+      )
+    }
     const cycle = computeReportingCycle(loaded.profile, new Date()) as { periodStart: string; periodEnd: string }
     const navigatorWithStandalone = window.navigator as Navigator & { standalone?: boolean }
     const standalone = window.matchMedia('(display-mode: standalone)').matches || Boolean(navigatorWithStandalone.standalone)
@@ -344,7 +400,17 @@ export default function CareerDashboard() {
   }, [])
 
   useEffect(() => {
-    if (hydrated) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    if (!hydrated) return
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    } catch {
+      // v34: a full localStorage quota (QuotaExceededError) must not fail
+      // silently — the person needs to know their last change may not be
+      // saved, with a persistent banner rather than a vanishing toast.
+      setRecoveryBanner(
+        'Не удалось сохранить изменения — локальное хранилище переполнено. Экспортируйте данные и освободите место.'
+      )
+    }
   }, [hydrated, state])
 
   useEffect(() => {
@@ -752,6 +818,19 @@ export default function CareerDashboard() {
     reader.onload = () => {
       try {
         const raw = JSON.parse(String(reader.result)) as Record<string, unknown>
+        if (!isEscadaState(raw) && !raw.tasks && !raw.profile) {
+          setNotice('Файл не похож на экспорт Эскады')
+          return
+        }
+        const incoming = stateCounts(raw)
+        const existing = stateCounts(state)
+        const confirmed = window.confirm(
+          `Заменить текущие данные (${existing.ideas} идей, ${existing.wins} wins, ${existing.reports} отчётов) `
+          + `на импортируемые (${incoming.ideas} идей, ${incoming.wins} wins, ${incoming.reports} отчётов)? `
+          + 'Текущие данные будут сохранены в резервную копию.'
+        )
+        if (!confirmed) return
+        writeBackup(state)
         setState(asState(migrateState(raw, createDefaultState())))
         setNotice('Данные импортированы')
       } catch { setNotice('Не удалось прочитать файл') }
@@ -801,6 +880,15 @@ export default function CareerDashboard() {
       {winDraft && <WinModal draft={winDraft} profile={state.profile} busy={aiBusy} error={aiError} onClose={() => setWinDraft(null)} onSave={saveWin} onDelete={removeWin} onAi={(win) => requestAi('win_rewrite', win as unknown as Record<string, unknown>, win.competencyIds)} />}
       {openNote && <NoteOverlay note={openNote} busy={aiBusy} error={aiError} onClose={() => setOpenNote(null)} onConvert={convertNoteToIdea} onEdit={editNote} onAi={(note) => requestAi('idea_review', { title: note.title, details: note.body || note.rawText } as unknown as Record<string, unknown>, [])} />}
       <input ref={importRef} className={styles.hiddenInput} type="file" accept="application/json" onChange={importData} />
+      {recoveryBanner && (
+        <div className={styles.recoveryBanner} role="alert">
+          <span>{recoveryBanner}</span>
+          <div className={styles.recoveryBannerActions}>
+            <button type="button" onClick={exportData}>Экспортировать данные</button>
+            <button type="button" onClick={() => setRecoveryBanner('')}>Закрыть</button>
+          </div>
+        </div>
+      )}
       {notice && <div className={styles.toast} role="status">{notice}</div>}
     </main>
   )
