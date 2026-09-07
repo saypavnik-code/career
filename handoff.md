@@ -92,3 +92,12 @@ v34 (реальный ИИ-парсинг кастомной шкалы) — п�
 - `sources` and report-draft text generation untouched — they legitimately use the fuller retrieved context, not just matches.
 - tests/escada-v15.test.mjs covers the golden test plus admission-filter and matches-shape invariants.
 - Next: v36 — Fable roadmap Patch C (P0-3: inferLevelSignal tie-break + suggestBehaviorRefs fallback ignoring score). Product decision already made: one-click accept-chip on save for AI competency suggestions.
+
+
+## v36 — Level-signal tie-break + behavior-ref fallback fixes (Fable Patch C, math-only half / P0-3)
+
+- `inferLevelSignal`: on a genuine score tie between levels, no longer defaults to the higher level. Now picks whichever tied level is closest to the person's current profile level. Verified concretely: a 3-way tie (specialist=senior=lead=2) previously always resolved to 'lead' regardless of profile level; now resolves to whichever tied level the profile is actually at (or nearest to it).
+- `suggestBehaviorRefs`: the zero-overlap fallback now ranks ALL candidates by score before slicing, instead of taking the first N in insertion (competency/signal) order. Verified concretely: with two competencies and zero-overlap text, the old code returned a truly zero-scored candidate (`a:senior:1`) while ignoring an equally-scored candidate from the second competency (`b:senior:0`).
+- **Deliberately out of scope for this patch** (per product decision, split into v37): the accept/confirm UX for AI-suggested levelSignal/behaviorRefs. Today these are still auto-saved onto ideas/wins with no confirmed-vs-inferred distinction — the math is now honest, but there is still no UI signal to the person that these are algorithm guesses rather than their own confirmed choice.
+- tests/escada-v16.test.mjs covers both fixes with concrete before/after-reproducing cases.
+- Next: v37 — accept-chip UX for AI-suggested competency/level signals (one-click accept-chip on save, per Pavel's product decision), likely introducing a confirmed/inferred distinction on idea/win records.

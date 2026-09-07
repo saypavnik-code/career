@@ -101,7 +101,19 @@ export function inferLevelSignal(text, fallback = 'specialist') {
     }
   }
 
-  const winner = [...LEVEL_ORDER].sort((a, b) => scores[b] - scores[a] || LEVEL_ORDER.indexOf(b) - LEVEL_ORDER.indexOf(a))[0]
+  // v36: on a genuine score tie, do not default to the higher level —
+  // that silently inflates the inferred level beyond what the text actually
+  // demonstrates. Instead prefer whichever tied level sits closest to the
+  // person's current profile level (`fallback`): if the profile level itself
+  // is among the tied levels, stay there; otherwise pick the nearest tied
+  // level. This is neutral rather than upward-biased. See Fable roadmap P0-3.
+  const fallbackIndex = LEVEL_ORDER.includes(fallback) ? LEVEL_ORDER.indexOf(fallback) : 0
+  const topScore = Math.max(...LEVEL_ORDER.map((level) => scores[level]))
+  const tied = LEVEL_ORDER.filter((level) => scores[level] === topScore)
+  const winner = [...tied].sort((a, b) => (
+    Math.abs(LEVEL_ORDER.indexOf(a) - fallbackIndex) - Math.abs(LEVEL_ORDER.indexOf(b) - fallbackIndex)
+  ))[0]
+
   if (scores[winner] === 0) {
     return { level: fallback, reason: 'Недостаточно текстовых сигналов для уверенного вывода; используем уровень профиля как нейтральную отправную точку.' }
   }
@@ -140,9 +152,16 @@ export function suggestBehaviorRefs(text, competencyIds, competencies, level, li
     })
   }
 
-  const positive = candidates.filter((item) => item.score > 0.1)
-  const source = positive.length ? positive : candidates.slice(0, Math.min(competencyIds?.length ?? 0, 2))
-  return source.sort((a, b) => b.score - a.score).slice(0, limit).map((item) => item.ref)
+  // v36: rank ALL candidates by score before slicing — the old code sliced
+  // the fallback by INSERTION order (candidates.slice(0, N)), which meant a
+  // zero-overlap record could get a behaviorRef with truly zero score (not
+  // even the small first-signal tiebreak bonus) purely because it appeared
+  // early in competencyIds, while a genuinely tied-or-better candidate from
+  // a later competency was never considered. See Fable roadmap P0-3.
+  const ranked = [...candidates].sort((a, b) => b.score - a.score)
+  const positive = ranked.filter((item) => item.score > 0.1)
+  const source = positive.length ? positive : ranked.slice(0, Math.min(competencyIds?.length ?? 0, 2))
+  return source.slice(0, limit).map((item) => item.ref)
 }
 
 export function computeInsights(state) {
