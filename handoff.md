@@ -82,3 +82,13 @@ v34 (реальный ИИ-парсинг кастомной шкалы) — п�
 - `localStorage.setItem` persistence effect wrapped in try/catch; quota errors surface a persistent recovery banner instead of failing silently.
 - **Note on this document:** this file had drifted — it described a baseline of `f65cfd6` (post-v28) while `origin/main` was actually at `20977ed`, already containing v31-v33 (custom scale, AI retrieval on active scale, personal focus). Confirmed against `git log` on 2026-09-04. This file is being kept in sync with actual commits from v34 onward.
 - Next: v35 — Fable roadmap Patch B (P0-2: retrieval admission filter).
+
+
+## v35 — Retrieval admission filter + provenance metadata (Fable Patch B / P0-2)
+
+- `retrieveCriteria` admission fixed: a criterion is only admitted with real token overlap (`overlap > 0`) or an explicit competency match (`explicitMatch`). `currentBoost` remains in the sort score but no longer alone clears admission — previously any current-level criterion was admitted regardless of relevance.
+- `retrieveCriteria` now returns `matches: {criterion, overlap, explicit}[]` alongside the unchanged, backward-compatible `criteria` bare-array.
+- `buildLocalGuidance` (local fallback engine) now builds `currentCriteria`/`targetCriteria` — which feed `strengths`/`stretch` — from `retrieval.matches` filtered to real matches only. Empty strengths/stretch is a valid, honest result now (golden test: an unrelated artifact like buying bread and milk yields `strengths.length === 0`, where before it wrongly cited 2 career criteria as already-matched signals).
+- `sources` and report-draft text generation untouched — they legitimately use the fuller retrieved context, not just matches.
+- tests/escada-v15.test.mjs covers the golden test plus admission-filter and matches-shape invariants.
+- Next: v36 — Fable roadmap Patch C (P0-3: inferLevelSignal tie-break + suggestBehaviorRefs fallback ignoring score). Product decision already made: one-click accept-chip on save for AI competency suggestions.

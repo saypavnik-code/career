@@ -253,8 +253,15 @@ export function buildLocalGuidance(action, payload, activeScale = deriveActiveSc
   const artifact = payload?.artifact ?? {}
   const competencyIds = payload?.competencyIds ?? []
   const retrieval = retrieveCriteria({ action, profile, artifact, competencyIds }, activeScale)
-  const currentCriteria = retrieval.criteria.filter((item) => item.level === retrieval.currentLevel)
-  const targetCriteria = retrieval.targetLevel ? retrieval.criteria.filter((item) => item.level === retrieval.targetLevel) : []
+  // v35: strengths/stretch must only cite criteria the record actually
+  // matched (real token overlap or an explicitly selected competency) — a
+  // criterion included purely as same-level context is not evidence the
+  // record supports it. Empty strengths/stretch is a valid, honest result;
+  // see Fable roadmap Patch B (P0-2) golden test.
+  const currentMatches = retrieval.matches.filter((item) => item.criterion.level === retrieval.currentLevel && (item.overlap > 0 || item.explicit))
+  const targetMatches = retrieval.targetLevel ? retrieval.matches.filter((item) => item.criterion.level === retrieval.targetLevel && (item.overlap > 0 || item.explicit)) : []
+  const currentCriteria = currentMatches.map((item) => item.criterion)
+  const targetCriteria = targetMatches.map((item) => item.criterion)
   const currentCriterion = currentCriteria[0] ?? retrieval.criteria[0] ?? null
   const targetCriterion = targetCriteria[0] ?? null
   const currentLabel = levelLabels[retrieval.currentLevel]

@@ -64,30 +64,43 @@ export function retrieveCriteria(payload, activeScale = deriveActiveScale(null))
   const allowedLevels = targetLevel ? [currentLevel, targetLevel] : [currentLevel]
   const textTokens = tokens(text)
 
+  // v35: currentBoost previously participated in *admission* (score > 1 was
+  // reachable via currentBoost=2 alone with zero text overlap and zero
+  // explicit competency match), which let any current-level criterion into
+  // the result regardless of relevance. It now only affects sort order —
+  // admission requires either real token overlap or an explicit competency
+  // match. See Fable roadmap P0-2.
   const candidates = allCriteria
     .filter((criterion) => allowedLevels.includes(criterion.level))
     .map((criterion) => {
       const criterionTokens = tokens(criterion.text)
       let overlap = 0
       for (const token of textTokens) if (criterionTokens.has(token)) overlap += 1
-      const explicitBoost = competencyIds.includes(criterion.competencyId) ? 8 : 0
+      const explicitMatch = competencyIds.includes(criterion.competencyId)
+      const explicitBoost = explicitMatch ? 8 : 0
       const currentBoost = criterion.level === currentLevel ? 2 : 1
-      return { criterion, score: explicitBoost + overlap * 2 + currentBoost }
+      return { criterion, overlap, explicitMatch, score: explicitBoost + overlap * 2 + currentBoost }
     })
-    .filter((item) => item.score > 1 || competencyIds.includes(item.criterion.competencyId))
+    .filter((item) => item.overlap > 0 || item.explicitMatch)
     .sort((a, b) => b.score - a.score || a.criterion.id.localeCompare(b.criterion.id))
 
   const selected = []
   const seen = new Set()
   for (const item of candidates) {
     if (seen.has(item.criterion.id)) continue
-    selected.push(item.criterion)
+    selected.push(item)
     seen.add(item.criterion.id)
     if (selected.length >= MAX_CRITERIA) break
   }
 
+  // Fallback: nothing matched by overlap or explicit competency selection at
+  // all. This is context filler, not a signal the record supports — mark it
+  // as such (overlap: 0, explicitMatch: false) so consumers like
+  // buildLocalGuidance never present it as a confirmed "strength".
   if (!selected.length) {
-    for (const criterion of allCriteria.filter((item) => allowedLevels.includes(item.level)).slice(0, 8)) selected.push(criterion)
+    for (const criterion of allCriteria.filter((item) => allowedLevels.includes(item.level)).slice(0, 8)) {
+      selected.push({ criterion, overlap: 0, explicitMatch: false, score: 0 })
+    }
   }
 
   return {
@@ -95,7 +108,13 @@ export function retrieveCriteria(payload, activeScale = deriveActiveScale(null))
     currentLevel,
     targetLevel,
     competencyIds,
-    criteria: selected,
+    // Backward-compatible bare-criterion list — most consumers only need the
+    // criterion objects themselves (prompt building, source citations).
+    criteria: selected.map((item) => item.criterion),
+    // v35: provenance-carrying list — {criterion, overlap, explicit} — for
+    // consumers that must distinguish "matched the record's own text/tags"
+    // from "included for context only". See Fable roadmap Patch B (P0-2).
+    matches: selected.map((item) => ({ criterion: item.criterion, overlap: item.overlap, explicit: item.explicitMatch })),
   }
 }
 
