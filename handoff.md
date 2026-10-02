@@ -170,3 +170,12 @@ Status as of this consolidation:
   via `node --test`. React/`.tsx` behavior that needs regression coverage
   gets modeled as a plain-data state machine mirroring the real logic (see
   `tests/escada-v18.test.mjs` for the pattern).
+
+
+## v40 -- Stale note-conversion + import editor-clearing (Fable Patch E, scoped / P1-5, part of P1-6)
+
+- **Scope note:** the roadmap's literal ask for Patch E was a full id-based `useMemo` rewrite of `ideaDraft`/`winDraft`/`openNote` (currently full entity snapshots). Checked the actual UI layering first: `IdeaWorkspace`/`WinModal` render as overlays ON TOP OF `IdeasView`/`WinsView` (both mounted simultaneously) -- the specific failure mode the roadmap worried about (Kanban drag mutating an idea while its own editor is open) is not practically reachable, since the editor modal covers the list behind it. Scoped this patch to the two concrete, everyday-reachable bugs instead of the full architectural rewrite.
+- **Stale note-conversion bug (confirmed exactly):** editing a note's text, then clicking "Это идея!" without first clicking "Сохранить", silently used the pre-edit text -- `NoteOverlay` kept local edit state but passed the original stale `note` prop through to `convertNoteToIdea`. Fixed: `convertNoteToIdea(noteId, pendingText?)` looks the note up fresh from `state.notes`; `NoteOverlay` passes its pending text through atomically in the same call (calling `onEdit` then `onConvert` separately would still race, since `setState` is not synchronous).
+- **Import doesn't clear open editors (confirmed exactly):** `importData` replaced the entire dataset but never cleared `ideaDraft`/`winDraft`/`openNote`/`newIdeaFromNote`. Fixed: all four cleared on successful import.
+- tests/escada-v19.test.mjs exercises the real `noteToIdea`/`deriveNoteTitle` logic against the stale-vs-pending-text scenario concretely (a bought-bread note vs. pending lead-level text).
+- Next: Fable roadmap Patch F -- unsaved-work guard + PWA reload safety (P1-6).

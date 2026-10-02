@@ -34,6 +34,7 @@ import {
   isEscadaState,
   isIdeaReadyForWin,
   updateNote as updateNoteFromState,
+  deriveNoteTitle,
   demoState,
   inferLevelSignal,
   migrateState,
@@ -636,19 +637,37 @@ export default function CareerDashboard() {
     setNotice('Мысль обновлена')
   }
 
-  function convertNoteToIdea(note: Note) {
-    if (note.convertedIdeaId) {
-      const existingIdea = state.ideas.find((idea) => idea.id === note.convertedIdeaId)
+  // v40: `noteId` (not a Note snapshot) -- the note is looked up fresh from
+  // `state.notes` right before use, so an edit saved moments earlier via
+  // `editNote` (or any other update to this note) is never silently
+  // ignored in favor of a stale object captured when the overlay opened.
+  // `pendingText`, when provided, is an edit the person typed but had not
+  // yet clicked "Сохранить" for -- applying it via a single updateState call
+  // here (rather than calling editNote first and convertNoteToIdea second)
+  // avoids a real race: setState updates are not synchronous, so a second
+  // call reading `state.notes` immediately after the first would still see
+  // the pre-edit value.
+  // See Fable roadmap Patch E (P1-5/P1-6): "editing a note -> saving ->
+  // 'Это идея!' used stale text" was reproduced exactly with the previous
+  // Note-snapshot-passing pattern.
+  function convertNoteToIdea(noteId: string, pendingText?: string) {
+    const note = state.notes.find((item) => item.id === noteId)
+    if (!note) return
+    const effectiveText = pendingText?.trim() ? pendingText : note.rawText
+    const derived = pendingText?.trim() ? deriveNoteTitle(effectiveText) : { title: note.title, body: note.body }
+    const effectiveNote = { ...note, title: derived.title || effectiveText.slice(0, 40), body: derived.body, rawText: effectiveText }
+    if (effectiveNote.convertedIdeaId) {
+      const existingIdea = state.ideas.find((idea) => idea.id === effectiveNote.convertedIdeaId)
       if (existingIdea) {
         setOpenNote(null)
         setIdeaDraft(existingIdea)
         return
       }
     }
-    const result = noteToIdea(note as unknown as Record<string, unknown>, state.profile.currentLevel) as unknown as { idea: Idea; note: Note }
+    const result = noteToIdea(effectiveNote as unknown as Record<string, unknown>, state.profile.currentLevel) as unknown as { idea: Idea; note: Note }
     updateState((current) => ({
       ...current,
-      notes: current.notes.map((item) => item.id === note.id ? result.note : item),
+      notes: current.notes.map((item) => item.id === noteId ? result.note : item),
       ideas: [result.idea, ...current.ideas],
     }))
     setOpenNote(null)
@@ -901,6 +920,15 @@ export default function CareerDashboard() {
         if (!confirmed) return
         writeBackup(state)
         setState(asState(migrateState(raw, createDefaultState())))
+        // v40: any open editor holds a snapshot of an entity that may no
+        // longer exist (or may exist with different content) in the
+        // freshly-imported dataset. Leaving it open risks the person saving
+        // a "resurrected" pre-import entity into the new data. See Fable
+        // roadmap Patch E (P1-5/P1-6).
+        setIdeaDraft(null)
+        setWinDraft(null)
+        setOpenNote(null)
+        setNewIdeaFromNote(null)
         setNotice('Данные импортированы')
       } catch { setNotice('Не удалось прочитать файл') }
     }
@@ -1003,7 +1031,7 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
   busy: string
   error: string
   onClose: () => void
-  onConvert: (note: Note) => void
+  onConvert: (noteId: string, pendingText?: string) => void
   onEdit: (noteId: string, rawText: string) => void
   onAi: (note: Note) => Promise<AiResponse>
 }) {
@@ -1012,6 +1040,14 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
   const dirty = text.trim() !== note.rawText.trim()
   async function runAi() { setGuidance(await onAi(note)) }
   function save() { if (text.trim()) onEdit(note.id, text) }
+  // v40: pass the just-typed text straight through to onConvert instead of
+  // calling onEdit first and onConvert second -- setState updates are not
+  // synchronous, so a second call reading state.notes immediately after
+  // the first would still see the pre-edit value. A single atomic path
+  // avoids that race entirely.
+  function convert() {
+    onConvert(note.id, dirty ? text : undefined)
+  }
   return <Modal title={note.title} subtitle="" onClose={onClose}>
     <div className={styles.noteEditorWrap}>
       <span className={styles.noteEditorDate}>{formatDate(note.createdAt.slice(0, 10))}</span>
@@ -1026,7 +1062,7 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
         {guidance.nextStep && <p><strong>Следующий шаг.</strong> {guidance.nextStep}</p>}
       </div>}
       <div className={styles.modalActions}>
-        <button className={styles.primaryButton} type="button" onClick={() => onConvert(note)}>{note.convertedIdeaId ? 'Открыть идею' : 'Это идея!'}</button>
+        <button className={styles.primaryButton} type="button" onClick={convert}>{note.convertedIdeaId ? 'Открыть идею' : 'Это идея!'}</button>
         <button className={styles.aiMiniButton} type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Думаем…' : '✦ Улучшить'}</button>
       </div>
     </div>
