@@ -371,6 +371,13 @@ export default function CareerDashboard() {
   // draft is generated, so re-generating never silently overwrites whatever
   // was previously opened.
   const [currentReportId, setCurrentReportId] = useState<string | null>(null)
+  // v41: the last known-good report text -- set whenever reportText becomes
+  // a fresh, non-edited value (AI-generated, opened from a saved report, or
+  // right after a successful save). Comparing reportText against this is
+  // how the editor knows there's unsaved work, for both the close-confirm
+  // guard and the "Пересобрать черновик" overwrite-confirm. See Fable
+  // roadmap Patch F (P1-6).
+  const [reportBaseline, setReportBaseline] = useState('')
   const [reportGuidance, setReportGuidance] = useState<AiResponse | null>(null)
   const [growthGuidance, setGrowthGuidance] = useState<AiResponse | null>(null)
   const [aiBusy, setAiBusy] = useState('')
@@ -513,12 +520,34 @@ export default function CareerDashboard() {
     }
   }, [])
 
+  // v41: unified selector -- any surface where the person could lose
+  // in-progress input. Deliberately coarser than the per-editor `isDirty`
+  // checks used for the Escape/backdrop confirm guards: an editor being
+  // OPEN (not necessarily edited yet) is enough to block an automatic
+  // reload or warn on tab close, since both of those are silent,
+  // unprompted events -- better to be conservative there than to risk
+  // wiping something mid-thought. See Fable roadmap Patch F (P1-6).
+  const hasUnsavedWork = Boolean(
+    ideaDraft || winDraft || reportDraftOpen || openNote || newIdeaFromNote ||
+    profileOpen || quickText.trim() || !state.onboardingComplete
+  )
+
+  // v41: previously this auto-reloaded the instant no listed editor was
+  // open -- but the old check didn't even include openNote/newIdeaFromNote/
+  // profileOpen, so a pending update could silently reload the page WHILE
+  // one of those was open with unsaved text, wiping it with zero warning.
+  // Per Fable roadmap Patch F: replace the automatic reload entirely with a
+  // non-blocking, dismissible banner offering a manual "Перезагрузить"
+  // button -- the person decides when, never an unprompted reload.
   useEffect(() => {
-    if (!swReloadPending) return
-    const editorOpen = Boolean(ideaDraft || winDraft || reportDraftOpen)
-    if (editorOpen) return
-    window.location.reload()
-  }, [swReloadPending, ideaDraft, winDraft, reportDraftOpen])
+    if (!hasUnsavedWork) return
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasUnsavedWork])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -773,6 +802,7 @@ export default function CareerDashboard() {
           ? { ...item, periodStart, periodEnd, winIds: selectedWinIds, ideaIds: selectedIdeaIds, content: reportText, updatedAt: now }
           : item),
       }))
+      setReportBaseline(reportText)
       setNotice('Отчёт обновлён')
       return
     }
@@ -790,6 +820,7 @@ export default function CareerDashboard() {
     }
     updateState((current) => ({ ...current, reports: [report, ...current.reports] }))
     setCurrentReportId(report.id)
+    setReportBaseline(reportText)
     setNotice('Отчёт сохранён')
   }
 
@@ -800,6 +831,7 @@ export default function CareerDashboard() {
     setSelectedWinIds(report.winIds ?? [])
     setSelectedIdeaIds(report.ideaIds ?? [])
     setReportText(report.content ?? '')
+    setReportBaseline(report.content ?? '')
     setReportGuidance(null)
     setReportDraftOpen(true)
     setCurrentReportId(report.id)
@@ -812,17 +844,26 @@ export default function CareerDashboard() {
     setSelectedWinIds([])
     setSelectedIdeaIds([])
     setReportText('')
+    setReportBaseline('')
     setReportGuidance(null)
     setReportDraftOpen(false)
     setCurrentReportId(null)
     setNotice('Период установлен по отчётному циклу профиля')
   }
 
+  // v41: regenerating overwrites whatever is currently in the editor -- if
+  // that content differs from the last known-good baseline (an edit the
+  // person made since generating/opening/saving), confirm before
+  // discarding it. See Fable roadmap Patch F (P1-6).
   async function generateReport() {
+    if (reportText.trim() && reportText !== reportBaseline) {
+      if (!window.confirm('Пересборка заменит текущий текст черновика новым. Продолжить?')) return
+    }
     const wins = state.wins.filter((item) => selectedWinIds.includes(item.id))
     const ideas = state.ideas.filter((item) => selectedIdeaIds.includes(item.id))
     const response = await requestAi('report_draft', { reportType: reportTypeLabels[reportType], periodStart, periodEnd, wins, ideas }, [...new Set([...wins.flatMap((item) => item.competencyIds), ...ideas.flatMap((item) => item.competencyIds)])])
     setReportText(response.draftMarkdown ?? '')
+    setReportBaseline(response.draftMarkdown ?? '')
     setReportGuidance(response)
     setReportDraftOpen(true)
     // v38: a freshly generated draft is not automatically "the same report"
@@ -964,7 +1005,7 @@ export default function CareerDashboard() {
         {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel, '', state.focusCompetencyIds))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
         {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin(state.focusCompetencyIds))} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView profile={state.profile} cycle={reportingCycle} wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onUseProfilePeriod={useProfileReportingPeriod} onOpenProfile={() => setProfileOpen(true)} />}
-        {view === 'reports' && reportDraftOpen && <ReportDraftModal reportType={reportType} reportText={reportText} guidance={reportGuidance} busy={aiBusy} profile={state.profile} periodStart={periodStart} periodEnd={periodEnd} isUpdate={Boolean(currentReportId)} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onClose={() => { setReportDraftOpen(false); setReportText(''); setReportGuidance(null); setCurrentReportId(null) }} onNotice={setNotice} />}
+        {view === 'reports' && reportDraftOpen && <ReportDraftModal reportType={reportType} reportText={reportText} guidance={reportGuidance} busy={aiBusy} profile={state.profile} periodStart={periodStart} periodEnd={periodEnd} isUpdate={Boolean(currentReportId)} isDirty={reportText.trim() !== reportBaseline.trim()} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onClose={() => { setReportDraftOpen(false); setReportText(''); setReportBaseline(''); setReportGuidance(null); setCurrentReportId(null) }} onNotice={setNotice} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} activeCompetencies={activeCompetencies} customScale={state.customCompetencyScale} focusCompetencyIds={state.focusCompetencyIds} onSetFocus={handleSetFocus} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} onUploadScale={handleCustomScaleUpload} onApplyScale={handleApplyCustomScale} onDiscardScale={handleDiscardCustomScale} />}
       </section>
 
@@ -983,6 +1024,15 @@ export default function CareerDashboard() {
           <div className={styles.recoveryBannerActions}>
             <button type="button" onClick={exportData}>Экспортировать данные</button>
             <button type="button" onClick={() => setRecoveryBanner('')}>Закрыть</button>
+          </div>
+        </div>
+      )}
+      {swReloadPending && (
+        <div className={styles.updateBanner} role="status">
+          <span>Доступно обновление Эскады.</span>
+          <div className={styles.updateBannerActions}>
+            <button type="button" onClick={() => window.location.reload()}>Перезагрузить</button>
+            <button type="button" onClick={() => setSwReloadPending(false)}>Позже</button>
           </div>
         </div>
       )}
@@ -1048,7 +1098,7 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
   function convert() {
     onConvert(note.id, dirty ? text : undefined)
   }
-  return <Modal title={note.title} subtitle="" onClose={onClose}>
+  return <Modal title={note.title} subtitle="" onClose={onClose} isDirty={dirty}>
     <div className={styles.noteEditorWrap}>
       <span className={styles.noteEditorDate}>{formatDate(note.createdAt.slice(0, 10))}</span>
       <textarea className={styles.noteEditor} value={text} onChange={(event) => setText(event.target.value)} aria-label="Текст мысли" autoFocus />
@@ -1234,7 +1284,7 @@ function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart
   </div>
 }
 
-function ReportDraftModal({ reportType, reportText, guidance, busy, profile, periodStart, periodEnd, isUpdate, onReview, onReportText, onSave, onClose, onNotice }: {
+function ReportDraftModal({ reportType, reportText, guidance, busy, profile, periodStart, periodEnd, isUpdate, isDirty, onReview, onReportText, onSave, onClose, onNotice }: {
   reportType: ReportType
   reportText: string
   guidance: AiResponse | null
@@ -1247,6 +1297,9 @@ function ReportDraftModal({ reportType, reportText, guidance, busy, profile, per
   // will happen, since silently overwriting history without saying so would
   // be confusing.
   isUpdate: boolean
+  // v41: whether reportText currently differs from the last known-good
+  // baseline (see reportBaseline in the parent). See Fable roadmap Patch F.
+  isDirty: boolean
   onReview: () => Promise<void>
   onReportText: (value: string) => void
   onSave: () => void
@@ -1313,7 +1366,7 @@ function ReportDraftModal({ reportType, reportText, guidance, busy, profile, per
     <button className={styles.secondaryButton} type="button" disabled={busy === 'report_review'} onClick={() => void onReview()}>{busy === 'report_review' ? 'Проверяем…' : 'Проверить по шкале'}</button>
     <button className={styles.primaryButton} type="button" onClick={onSave}>{isUpdate ? 'Сохранить изменения' : 'Сохранить отчёт'}</button>
   </div>
-  return <ArtifactEditorShell label={reportTypeLabels[reportType]} onClose={onClose} actions={actions}>
+  return <ArtifactEditorShell label={reportTypeLabels[reportType]} onClose={onClose} actions={actions} isDirty={isDirty}>
     <textarea className={styles.reportEditorTextarea} value={reportText} onChange={(event) => onReportText(event.target.value)} aria-label="Текст отчёта" autoFocus />
     {guidance && <AiGuidancePanel guidance={guidance} compact />}
   </ArtifactEditorShell>
@@ -1446,7 +1499,7 @@ function NewIdeaModal({ idea, onClose, onSave, onPromote }: {
   onPromote: (idea: Idea) => void
 }) {
   const [draft, setDraft] = useState(idea)
-  return <Modal title="Новая идея" subtitle="Название и смысл — остальное можно добавить позже, открыв идею из «Идеи»." onClose={onClose}>
+  return <Modal title="Новая идея" subtitle="Название и смысл — остальное можно добавить позже, открыв идею из «Идеи»." onClose={onClose} isDirty={JSON.stringify(draft) !== JSON.stringify(idea)}>
     <form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); if (draft.title.trim()) onSave(draft) }}>
       <label className={styles.field}>Название идеи<input autoFocus value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label>
       <label className={styles.field}>Смысл<textarea value={draft.details} onChange={(event) => setDraft({ ...draft, details: event.target.value })} placeholder="В чём идея и почему она может быть полезна?" /></label>
@@ -1502,7 +1555,7 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
     </div>
   </>
 
-  return <ArtifactEditorShell label="Идея" meta={statusControl} onClose={onClose} actions={actions}>
+  return <ArtifactEditorShell label="Идея" meta={statusControl} onClose={onClose} actions={actions} isDirty={JSON.stringify(draft) !== JSON.stringify(initial)}>
     <div className={styles.artifactTextFields}>
       <input className={styles.artifactTitleEditor} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Название идеи" aria-label="Название идеи" autoFocus />
       <textarea className={styles.artifactMainEditor} value={draft.details} onChange={(event) => setDraft({ ...draft, details: event.target.value })} placeholder="Смысл идеи — что хочется проверить или изменить?" aria-label="Смысл идеи" />
@@ -1571,7 +1624,7 @@ function WinModal({ draft: initial, profile, busy, error, onClose, onSave, onDel
     <button className={styles.artifactSaveButton} type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Готово</button>
   </>
 
-  return <ArtifactEditorShell label="Win" onClose={onClose} actions={actions}>
+  return <ArtifactEditorShell label="Win" onClose={onClose} actions={actions} isDirty={JSON.stringify(draft) !== JSON.stringify(initial)}>
     {draft.sourceContext && <div className={styles.artifactSourceLine}><span>Из идеи</span><p>{draft.sourceContext}</p></div>}
 
     <div className={styles.artifactTextFields}>
@@ -1618,34 +1671,50 @@ function AiGuidancePanel({ guidance, compact = false, onSaveNextStep, onApplyRew
 
 function ProfileModal({ profile: initial, onClose, onSave, onExport, onImport }: { profile: Profile; onClose: () => void; onSave: (profile: Profile) => void; onExport: () => void; onImport: () => void }) {
   const [profile, setProfile] = useState(initial)
-  return <Modal title="Профиль" subtitle="Уровень определяет ожидания шкалы; рынок и отчётный цикл помогают сохранять рабочий контекст." onClose={onClose}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); onSave(profile) }}><label className={styles.field}>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label className={styles.field}>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><section className={styles.profileCycleBox}><div><strong>Отчётный цикл</strong><span>Используется только для периода в «Отчётах». Это не дедлайн и не автоматический review.</span></div><div className={styles.formGrid}><label className={styles.field}>Ритм<select value={profile.reportingRhythm} onChange={(event) => setProfile({ ...profile, reportingRhythm: event.target.value as Profile['reportingRhythm'] })}>{Object.entries(reportingRhythmLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Конец текущего цикла<input type="date" value={profile.cycleEnd} onChange={(event) => setProfile({ ...profile, cycleEnd: event.target.value })} /></label></div></section><div className={styles.optionalBlock}><div><strong>Локальные данные</strong><span>Экспортируйте резервную копию или импортируйте её на другом устройстве.</span></div><div className={styles.buttonRow}><button type="button" className={styles.secondaryButton} onClick={onExport}>Экспорт</button><button type="button" className={styles.secondaryButton} onClick={onImport}>Импорт</button></div></div><div className={styles.modalActions}><button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить</button></div></form></Modal>
+  return <Modal title="Профиль" subtitle="Уровень определяет ожидания шкалы; рынок и отчётный цикл помогают сохранять рабочий контекст." onClose={onClose} isDirty={JSON.stringify(profile) !== JSON.stringify(initial)}><form className={styles.modalForm} onSubmit={(event) => { event.preventDefault(); onSave(profile) }}><label className={styles.field}>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label className={styles.field}>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><section className={styles.profileCycleBox}><div><strong>Отчётный цикл</strong><span>Используется только для периода в «Отчётах». Это не дедлайн и не автоматический review.</span></div><div className={styles.formGrid}><label className={styles.field}>Ритм<select value={profile.reportingRhythm} onChange={(event) => setProfile({ ...profile, reportingRhythm: event.target.value as Profile['reportingRhythm'] })}>{Object.entries(reportingRhythmLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={styles.field}>Конец текущего цикла<input type="date" value={profile.cycleEnd} onChange={(event) => setProfile({ ...profile, cycleEnd: event.target.value })} /></label></div></section><div className={styles.optionalBlock}><div><strong>Локальные данные</strong><span>Экспортируйте резервную копию или импортируйте её на другом устройстве.</span></div><div className={styles.buttonRow}><button type="button" className={styles.secondaryButton} onClick={onExport}>Экспорт</button><button type="button" className={styles.secondaryButton} onClick={onImport}>Импорт</button></div></div><div className={styles.modalActions}><button className={styles.secondaryButton} type="button" onClick={onClose}>Отмена</button><button className={styles.primaryButton} type="submit">Сохранить</button></div></form></Modal>
 }
 
-function useDialogBehavior(onClose: () => void) {
+// v41: `isDirty`, when true, makes Escape and backdrop-click confirm before
+// closing instead of discarding input silently. Omitted/false preserves the
+// previous immediate-close behavior (used by dialogs with nothing to lose,
+// e.g. read-only overlays). See Fable roadmap Patch F (P1-6).
+function useDialogBehavior(onClose: () => void, isDirty = false) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (isDirty && !window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return
+      onClose()
+    }
     window.addEventListener('keydown', handler)
     return () => {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handler)
     }
-  }, [onClose])
+  }, [onClose, isDirty])
 }
 
-function Modal({ title, subtitle, onClose, children, wide = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
-  useDialogBehavior(onClose)
-  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className={`${styles.compactCard} ${wide ? styles.modalWide : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className={styles.modalHeader}><div><span className={styles.eyebrow}>Эскада</span><h2 id="modal-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" aria-label="Закрыть" onClick={onClose}>×</button></div><div className={styles.compactCardBody}>{children}</div></section></div>
+function Modal({ title, subtitle, onClose, children, wide = false, isDirty = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean; isDirty?: boolean }) {
+  useDialogBehavior(onClose, isDirty)
+  function confirmedClose() {
+    if (isDirty && !window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return
+    onClose()
+  }
+  return <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) confirmedClose() }}><section className={`${styles.compactCard} ${wide ? styles.modalWide : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className={styles.modalHeader}><div><span className={styles.eyebrow}>Эскада</span><h2 id="modal-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" aria-label="Закрыть" onClick={confirmedClose}>×</button></div><div className={styles.compactCardBody}>{children}</div></section></div>
 }
 
-function ArtifactEditorShell({ label, meta, onClose, children, actions }: { label: string; meta?: ReactNode; onClose: () => void; children: ReactNode; actions: ReactNode }) {
-  useDialogBehavior(onClose)
-  return <div className={`${styles.modalBackdrop} ${styles.artifactEditorBackdrop}`} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
+function ArtifactEditorShell({ label, meta, onClose, children, actions, isDirty = false }: { label: string; meta?: ReactNode; onClose: () => void; children: ReactNode; actions: ReactNode; isDirty?: boolean }) {
+  useDialogBehavior(onClose, isDirty)
+  function confirmedClose() {
+    if (isDirty && !window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return
+    onClose()
+  }
+  return <div className={`${styles.modalBackdrop} ${styles.artifactEditorBackdrop}`} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) confirmedClose() }}>
     <section className={`${styles.compactCard} ${styles.artifactEditorCard}`} role="dialog" aria-modal="true" aria-label={label}>
       <header className={styles.artifactEditorHeader}>
         <div className={styles.artifactEditorIdentity}><strong>{label}</strong>{meta}</div>
-        <button className={styles.artifactEditorClose} type="button" aria-label="Закрыть" onClick={onClose}>×</button>
+        <button className={styles.artifactEditorClose} type="button" aria-label="Закрыть" onClick={confirmedClose}>×</button>
       </header>
       <div className={styles.artifactEditorBody}>{children}</div>
       <footer className={styles.artifactEditorFooter}>{actions}</footer>

@@ -179,3 +179,14 @@ Status as of this consolidation:
 - **Import doesn't clear open editors (confirmed exactly):** `importData` replaced the entire dataset but never cleared `ideaDraft`/`winDraft`/`openNote`/`newIdeaFromNote`. Fixed: all four cleared on successful import.
 - tests/escada-v19.test.mjs exercises the real `noteToIdea`/`deriveNoteTitle` logic against the stale-vs-pending-text scenario concretely (a bought-bread note vs. pending lead-level text).
 - Next: Fable roadmap Patch F -- unsaved-work guard + PWA reload safety (P1-6).
+
+
+## v41 -- Unified unsaved-work guard + PWA reload safety (Fable Patch F / P1-6)
+
+- `useDialogBehavior`/`Modal`/`ArtifactEditorShell` gained an `isDirty` prop: Escape, backdrop-click, and the header close button all confirm via `window.confirm` before discarding input when dirty. Wired into `IdeaWorkspace`, `WinModal`, `NewIdeaModal`, `ProfileModal` (compare `JSON.stringify(draft)` vs `initial`), `NoteOverlay` (reused its v40 `dirty` variable), and `ReportDraftModal` (new `reportBaseline` state, since the report editor is a controlled component).
+- New `hasUnsavedWork` unified selector covering ideaDraft, winDraft, reportDraftOpen, openNote, newIdeaFromNote, profileOpen, non-empty quickText, and incomplete onboarding.
+- **Found a worse bug than the roadmap described while reviewing the old SW-reload gate**: it only checked `ideaDraft || winDraft || reportDraftOpen` -- `openNote` was never included, so a pending service-worker update could silently `window.location.reload()` while a note overlay was open with unsaved text, with zero warning and without the person closing anything. Fixed by removing the auto-reload entirely: a persistent, dismissible banner ("Доступно обновление Эскады." / "Перезагрузить" / "Позже") replaces it -- the person decides when, matching the roadmap's explicit ask.
+- `beforeunload` handler added (previously did not exist at all, confirmed by grep before implementing).
+- `generateReport` ("Пересобрать черновик") now confirms before overwriting an edited draft, via the new `reportBaseline` tracking.
+- tests/escada-v20.test.mjs covers `hasUnsavedWork`, the `isDirty` comparison, the `reportBaseline` lifecycle, and the regenerate-confirm gate as plain-data logic, including a regression test for the openNote gap specifically.
+- Next: Fable roadmap Patch G -- AI response validation + payload budget (P1-1, P1-2). Note: `parseAndValidateAiResponse` already exists in `ai-contract.mjs` -- verify what it actually covers before assuming this is a green-field build.

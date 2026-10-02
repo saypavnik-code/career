@@ -287,6 +287,14 @@
 .recoveryBannerActions { display: flex; gap: 8px; }
 .recoveryBannerActions button { background: rgba(255,255,255,0.16); color: white; border: none; border-radius: 9px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .recoveryBannerActions button:hover { background: rgba(255,255,255,0.26); }
+/* v41: update-available banner — same persistent, non-auto-dismissing shape
+   as .recoveryBanner, but neutral navy tone rather than red: an available
+   update is routine news, not an error, and must never auto-reload on its
+   own (see Fable roadmap Patch F). */
+.updateBanner { position: fixed; z-index: 61; left: 50%; transform: translateX(-50%); bottom: 24px; max-width: min(420px, calc(100vw - 32px)); background: var(--navy); color: white; padding: 14px 16px; border-radius: 13px; box-shadow: 0 18px 44px rgba(0,0,0,0.28); font-size: 12px; font-weight: 600; display: flex; flex-direction: column; gap: 10px; }
+.updateBannerActions { display: flex; gap: 8px; }
+.updateBannerActions button { background: rgba(255,255,255,0.16); color: white; border: none; border-radius: 9px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.updateBannerActions button:hover { background: rgba(255,255,255,0.26); }
 .hiddenInput { display: none; }
 .mobileNav { display: none; }
 .loading { min-height: 100vh; display: grid; place-items: center; font: 600 14px/1.4 system-ui, sans-serif; background: #f7f8fc; color: #5f6576; }
