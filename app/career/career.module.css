@@ -211,6 +211,10 @@
 .savedReports article { border: 1px solid var(--line); background: white; border-radius: 14px; padding: 14px; display: grid; gap: 5px; }
 .savedReports strong { font-size: 12px; }
 .savedReports span { color: var(--muted); font-size: 10px; }
+/* v38: report reachability — full saved-reports history on the Reports page
+   itself, not just the last 5 shown inside the open draft modal. */
+.reportHistoryPanel { display: grid; gap: 14px; }
+.historyFilterSelect { min-height: 34px; max-width: 190px; border: 0; border-radius: 10px; background: var(--soft); color: var(--muted); padding: 6px 28px 6px 10px; font-size: 11px; font-weight: 750; }
 .guidanceBanner { border-radius: 28px; background: linear-gradient(135deg, #ece9ff, #f8f7ff); padding: clamp(26px, 5vw, 46px); border: 1px solid rgba(110,92,246,0.12); }
 .guidanceBanner h2 { margin: 16px 0 12px; max-width: 950px; font-size: clamp(28px, 4vw, 46px); line-height: 1.03; letter-spacing: -0.05em; }
 .guidanceBanner p { color: var(--muted); margin: 0; max-width: 780px; line-height: 1.7; }

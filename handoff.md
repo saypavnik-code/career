@@ -112,3 +112,15 @@ v34 (реальный ИИ-парсинг кастомной шкалы) — п�
 - `WinModal` intentionally NOT touched — it doesn't display the level signal at all today, so adding a whole new UI section there was judged out of scope for this patch; `saveWin`'s protection logic still applies once a confirmed idea is promoted.
 - tests/escada-v17.test.mjs covers confirm-survives-save, confirm-resets-on-stale-text, promote-carries-flag, and migration/construction defaults.
 - This closes the Fable roadmap P0-3 provenance gap fully: v36 fixed the math (tie-break, fallback ranking), v37 adds the confirmed/inferred distinction the product's "transparent growth tracking" promise depends on.
+
+
+## v38 — Report reachability + update-by-id save + real HTML escaping (Fable Patch D / P1)
+
+- Report reachability fixed: `state.reports` was never shown on the Reports page at all before — only inside the open draft modal, capped at the first 5. ReportsView now has a full, uncapped "Сохранённые отчёты" section with a type filter.
+- `reportText` no longer doubles as the modal-visibility flag — new `reportDraftOpen: boolean` state, decoupled from content.
+- `saveReport` now updates in place by id (single "Сохранить" button, per product decision) instead of always creating a new report. New `currentReportId: string | null` state tracks which report is open; `generateReport` clears it (regenerating a draft is not automatically "the same report"), `useProfileReportingPeriod` clears it too.
+- `Report` gained `updatedAt`.
+- Print/PDF HTML escaping: the report body was already escaped correctly; `title`/`periodLine` (built from free-text `profile.name`) were not. `escapeHtml` now covers every interpolated string. (An earlier draft of this note wrongly called the body escaping a no-op -- an artifact of analysis tooling, corrected.)
+- **Dropped from this patch, confirmed with Pavel**: the roadmap's claim that `window.open(..., 'noopener')` returns null and print "never worked". Checked against the current MDN Window.open() reference — `noopener` nulls the new window's `.opener`, not the return value of `open()` itself, which the existing `if (!printWindow)` guard already handles correctly for the real failure case (popup blocker). No change made there.
+- tests/escada-v18.test.mjs: CareerDashboard.tsx has no React test harness (confirmed, consistent with the rest of this project), so this models the report state machine as plain data plus a standalone escapeHtml regression test.
+- Next: Fable roadmap Patch E — editor identity guard (P1).

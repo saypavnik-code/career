@@ -152,6 +152,10 @@ interface Report {
   ideaIds: string[]
   content: string
   createdAt: string
+  // v38: set on creation and bumped on every in-place update via saveReport,
+  // so the reachability list can show "last edited" distinctly from the
+  // original creation date.
+  updatedAt: string
 }
 
 interface CareerState {
@@ -357,6 +361,15 @@ export default function CareerDashboard() {
   const [selectedIdeaIds, setSelectedIdeaIds] = useState<string[]>([])
   const [reportType, setReportType] = useState<ReportType>('monthly')
   const [reportText, setReportText] = useState('')
+  // v38: reportText used to double as both draft content AND modal-visibility
+  // flag (`reportText && <ReportDraftModal ...>`), so clearing the textarea
+  // to empty silently closed the modal. Tracked separately now.
+  const [reportDraftOpen, setReportDraftOpen] = useState(false)
+  // v38: null means "this draft has never been saved" -> next save creates a
+  // new report. Set when a saved report is opened; cleared when a fresh
+  // draft is generated, so re-generating never silently overwrites whatever
+  // was previously opened.
+  const [currentReportId, setCurrentReportId] = useState<string | null>(null)
   const [reportGuidance, setReportGuidance] = useState<AiResponse | null>(null)
   const [growthGuidance, setGrowthGuidance] = useState<AiResponse | null>(null)
   const [aiBusy, setAiBusy] = useState('')
@@ -501,10 +514,10 @@ export default function CareerDashboard() {
 
   useEffect(() => {
     if (!swReloadPending) return
-    const editorOpen = Boolean(ideaDraft || winDraft || reportText)
+    const editorOpen = Boolean(ideaDraft || winDraft || reportDraftOpen)
     if (editorOpen) return
     window.location.reload()
-  }, [swReloadPending, ideaDraft, winDraft, reportText])
+  }, [swReloadPending, ideaDraft, winDraft, reportDraftOpen])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -726,6 +739,24 @@ export default function CareerDashboard() {
 
   function saveReport() {
     if (!reportText.trim()) return
+    const now = new Date().toISOString()
+    // v38: a single "Сохранить" updates the report already open (by id)
+    // instead of always minting a new one — per product decision, re-saving
+    // an open report must not create a duplicate. A genuinely new report is
+    // only created when there is no currentReportId (a fresh draft that was
+    // never opened from history), which openSavedReport/generateReport/
+    // useProfileReportingPeriod are responsible for clearing at the right
+    // moments (see their comments).
+    if (currentReportId) {
+      updateState((current) => ({
+        ...current,
+        reports: current.reports.map((item) => item.id === currentReportId
+          ? { ...item, periodStart, periodEnd, winIds: selectedWinIds, ideaIds: selectedIdeaIds, content: reportText, updatedAt: now }
+          : item),
+      }))
+      setNotice('Отчёт обновлён')
+      return
+    }
     const report: Report = {
       id: createId('report'),
       title: `${reportTypeLabels[reportType]} · ${formatDate(periodStart)} — ${formatDate(periodEnd)}`,
@@ -735,10 +766,12 @@ export default function CareerDashboard() {
       winIds: selectedWinIds,
       ideaIds: selectedIdeaIds,
       content: reportText,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     }
     updateState((current) => ({ ...current, reports: [report, ...current.reports] }))
-    setNotice('Версия отчёта сохранена')
+    setCurrentReportId(report.id)
+    setNotice('Отчёт сохранён')
   }
 
   function openSavedReport(report: Report) {
@@ -749,6 +782,8 @@ export default function CareerDashboard() {
     setSelectedIdeaIds(report.ideaIds ?? [])
     setReportText(report.content ?? '')
     setReportGuidance(null)
+    setReportDraftOpen(true)
+    setCurrentReportId(report.id)
     setNotice('Сохранённая версия открыта')
   }
 
@@ -759,6 +794,8 @@ export default function CareerDashboard() {
     setSelectedIdeaIds([])
     setReportText('')
     setReportGuidance(null)
+    setReportDraftOpen(false)
+    setCurrentReportId(null)
     setNotice('Период установлен по отчётному циклу профиля')
   }
 
@@ -768,6 +805,15 @@ export default function CareerDashboard() {
     const response = await requestAi('report_draft', { reportType: reportTypeLabels[reportType], periodStart, periodEnd, wins, ideas }, [...new Set([...wins.flatMap((item) => item.competencyIds), ...ideas.flatMap((item) => item.competencyIds)])])
     setReportText(response.draftMarkdown ?? '')
     setReportGuidance(response)
+    setReportDraftOpen(true)
+    // v38: a freshly generated draft is not automatically "the same report"
+    // as whatever was previously opened — clearing currentReportId means the
+    // next save creates a new report rather than silently overwriting an
+    // unrelated saved version. This runs on every generate, including
+    // "Пересобрать черновик" on an already-open draft: regenerating content
+    // is a big enough change that it should not overwrite the old saved
+    // version without an explicit new save.
+    setCurrentReportId(null)
   }
 
   async function reviewReport() {
@@ -890,7 +936,7 @@ export default function CareerDashboard() {
         {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel, '', state.focusCompetencyIds))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
         {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin(state.focusCompetencyIds))} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView profile={state.profile} cycle={reportingCycle} wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onUseProfilePeriod={useProfileReportingPeriod} onOpenProfile={() => setProfileOpen(true)} />}
-        {view === 'reports' && reportText && <ReportDraftModal reportType={reportType} reportText={reportText} reports={state.reports} guidance={reportGuidance} busy={aiBusy} profile={state.profile} periodStart={periodStart} periodEnd={periodEnd} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onOpenReport={openSavedReport} onClose={() => { setReportText(''); setReportGuidance(null) }} onNotice={setNotice} />}
+        {view === 'reports' && reportDraftOpen && <ReportDraftModal reportType={reportType} reportText={reportText} guidance={reportGuidance} busy={aiBusy} profile={state.profile} periodStart={periodStart} periodEnd={periodEnd} isUpdate={Boolean(currentReportId)} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onClose={() => { setReportDraftOpen(false); setReportText(''); setReportGuidance(null); setCurrentReportId(null) }} onNotice={setNotice} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} activeCompetencies={activeCompetencies} customScale={state.customCompetencyScale} focusCompetencyIds={state.focusCompetencyIds} onSetFocus={handleSetFocus} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} onUploadScale={handleCustomScaleUpload} onApplyScale={handleApplyCustomScale} onDiscardScale={handleDiscardCustomScale} />}
       </section>
 
@@ -1090,7 +1136,7 @@ function WinsView({ wins, ideas, onNew, onOpen, onDelete, onReports }: { wins: W
   </div>
 }
 
-function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart, periodEnd, reportType, reportText, busy, error, onPeriodStart, onPeriodEnd, onReportType, onToggleWin, onToggleIdea, onSelectAll, onGenerate }: {
+function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart, periodEnd, reportType, reportText, reports, busy, error, onPeriodStart, onPeriodEnd, onReportType, onToggleWin, onToggleIdea, onSelectAll, onGenerate, onOpenReport }: {
   profile: Profile
   cycle: { rhythm: Profile['reportingRhythm']; periodStart: string; periodEnd: string; daysRemaining: number }
   wins: Win[]
@@ -1119,6 +1165,12 @@ function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart
   onUseProfilePeriod: () => void
   onOpenProfile: () => void
 }) {
+  // v38: report reachability — the full saved-reports history now lives on
+  // this page (not just the last 5 shown inside the open draft modal), with
+  // a simple type filter. `savedAt` falls back to createdAt for reports
+  // saved before v38 added updatedAt.
+  const [historyFilter, setHistoryFilter] = useState<ReportType | 'all'>('all')
+  const visibleHistory = reports.filter((report) => historyFilter === 'all' || report.type === historyFilter)
   return <div className={styles.pageStack}>
     <section className={styles.reportTypeGrid}>{visibleReportTypes.map((value) => <button type="button" key={value} className={reportType === value ? styles.reportTypeActive : styles.reportTypeCard} onClick={() => onReportType(value)}><strong>{reportTypeLabels[value]}</strong></button>)}</section>
 
@@ -1130,22 +1182,38 @@ function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart
       <div className={styles.reportActionRow}><p>Эскада соберёт текст только из выбранных записей. Цифры и влияние нужно подтвердить самостоятельно.</p><button className={styles.primaryButton} type="button" disabled={!selectedWinIds.length || busy === 'report_draft'} onClick={() => void onGenerate()}>{busy === 'report_draft' ? 'Эскада собирает…' : reportText ? 'Пересобрать черновик' : 'Собрать черновик с Эскадой'}</button></div>
       {error && <p className={styles.aiError}>{error}</p>}
     </section>
+
+    {reports.length > 0 && <section className={`${styles.panel} ${styles.reportHistoryPanel}`}>
+      <div className={styles.sectionHeader}>
+        <div><span className={styles.eyebrow}>История</span><h3>Сохранённые отчёты</h3></div>
+        <select className={styles.historyFilterSelect} value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value as ReportType | 'all')} aria-label="Фильтр по типу отчёта">
+          <option value="all">Все типы</option>
+          {visibleReportTypes.map((value) => <option key={value} value={value}>{reportTypeLabels[value]}</option>)}
+        </select>
+      </div>
+      {visibleHistory.length
+        ? <div className={styles.savedReports}>{visibleHistory.map((report) => <button type="button" className={styles.savedReportCard} key={report.id} onClick={() => onOpenReport(report)}><strong>{report.title}</strong><span>{formatDate((report.updatedAt ?? report.createdAt).slice(0, 10))}</span><small>Открыть версию</small></button>)}</div>
+        : <p className={styles.muted}>Нет отчётов этого типа.</p>}
+    </section>}
   </div>
 }
 
-function ReportDraftModal({ reportType, reportText, reports, guidance, busy, profile, periodStart, periodEnd, onReview, onReportText, onSave, onOpenReport, onClose, onNotice }: {
+function ReportDraftModal({ reportType, reportText, guidance, busy, profile, periodStart, periodEnd, isUpdate, onReview, onReportText, onSave, onClose, onNotice }: {
   reportType: ReportType
   reportText: string
-  reports: Report[]
   guidance: AiResponse | null
   busy: string
   profile: Profile
   periodStart: string
   periodEnd: string
+  // v38: single "Сохранить" button now updates the report already open (by
+  // id) instead of always creating a new one — this label reflects which
+  // will happen, since silently overwriting history without saying so would
+  // be confusing.
+  isUpdate: boolean
   onReview: () => Promise<void>
   onReportText: (value: string) => void
   onSave: () => void
-  onOpenReport: (report: Report) => void
   onClose: () => void
   onNotice: (message: string) => void
 }) {
@@ -1181,9 +1249,15 @@ function ReportDraftModal({ reportType, reportText, reports, guidance, busy, pro
       onNotice('Браузер заблокировал окно печати — разрешите всплывающие окна')
       return
     }
-    const title = `${reportTypeLabels[reportType]} · ${profile.name || 'Эскада'}`
-    const periodLine = periodStart && periodEnd ? `${formatDate(periodStart)} — ${formatDate(periodEnd)}` : ''
-    const escapedBody = reportText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // v38: title/periodLine are built from free-text profile.name and were
+    // previously interpolated into <title>/<h1> without escaping — a name
+    // containing '<', '>' or '&' (even pasted in by accident) could break
+    // the printed document's HTML structure. escapeHtml now covers every
+    // interpolated string, not just the report body.
+    const escapeHtml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const title = escapeHtml(`${reportTypeLabels[reportType]} · ${profile.name || 'Эскада'}`)
+    const periodLine = periodStart && periodEnd ? escapeHtml(`${formatDate(periodStart)} — ${formatDate(periodEnd)}`) : ''
+    const escapedBody = escapeHtml(reportText)
     printWindow.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8" /><title>${title}</title><style>
       body { font-family: 'Georgia', 'Times New Roman', serif; color: #1a1a2e; max-width: 720px; margin: 48px auto; padding: 0 24px; line-height: 1.55; }
       header { margin-bottom: 28px; border-bottom: 2px solid #1a1a2e; padding-bottom: 16px; }
@@ -1201,12 +1275,11 @@ function ReportDraftModal({ reportType, reportText, reports, guidance, busy, pro
     <button className={styles.secondaryButton} type="button" onClick={() => void copyReportText()}>{copyState === 'copied' ? '✓ Скопировано' : copyState === 'failed' ? 'Не удалось — попробуйте снова' : 'Скопировать'}</button>
     <button className={styles.secondaryButton} type="button" onClick={printReport}>Печать / PDF</button>
     <button className={styles.secondaryButton} type="button" disabled={busy === 'report_review'} onClick={() => void onReview()}>{busy === 'report_review' ? 'Проверяем…' : 'Проверить по шкале'}</button>
-    <button className={styles.primaryButton} type="button" onClick={onSave}>Сохранить версию</button>
+    <button className={styles.primaryButton} type="button" onClick={onSave}>{isUpdate ? 'Сохранить изменения' : 'Сохранить отчёт'}</button>
   </div>
   return <ArtifactEditorShell label={reportTypeLabels[reportType]} onClose={onClose} actions={actions}>
     <textarea className={styles.reportEditorTextarea} value={reportText} onChange={(event) => onReportText(event.target.value)} aria-label="Текст отчёта" autoFocus />
     {guidance && <AiGuidancePanel guidance={guidance} compact />}
-    {reports.length > 0 && <section className={styles.savedReports}><div className={styles.sectionHeader}><div><span className={styles.eyebrow}>История</span><h3>Сохранённые версии</h3></div></div>{reports.slice(0, 5).map((report) => <button type="button" className={styles.savedReportCard} key={report.id} onClick={() => onOpenReport(report)}><strong>{report.title}</strong><span>{formatDate(report.createdAt.slice(0, 10))}</span><small>Открыть версию</small></button>)}</section>}
   </ArtifactEditorShell>
 }
 
