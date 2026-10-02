@@ -1,126 +1,172 @@
-# Эскада — session handoff
+# Escada — Handoff
 
-**Repo:** `saypavnik-code/career` · branch `main` only · dev в GitHub Codespaces `/workspaces/career`
-**Last confirmed on origin/main:** `f65cfd6` — "chore: remove applied patch scripts v24-v28, refresh handoff for v29 handoff" (после v28)
+**Last updated:** after v38 (consolidation pass, this patch).
+**This file is a snapshot, not a changelog.** Previous sessions appended a
+new section per patch (v34 → v38), which is how this project's baseline
+drifted out of sync with `origin/main` once before (confirmed against
+`git log` on 2026-09-04, documented in the v34 patch commit). Going forward,
+`handoff.md` should be *rewritten* to reflect current state at natural
+pause points (like this one), not appended to indefinitely.
 
-## Что сделано (v24–v28, все на main)
-- v24: 12 competency `summary` заменены на короткие описательные тексты
-- v25: favicon fix, контраст в AI-подсказке Идеи, tooltip по компетенциям
-- v26: контраст `<strong>`-заголовков, убран sidebar-блок "Текущий уровень", Отчёты сведены к дате+типу+кнопке, редактор вынесен в `ReportDraftModal`
-- v27: экспорт отчёта — кнопки "Скопировать" (`navigator.clipboard`) и "Печать / PDF" (`window.print()`) в `ReportDraftModal`. Без новых зависимостей.
-- v28: устранён "зависший" тост обновления PWA. Причина — `sw.js` не вызывал `self.skipWaiting()`. Исправлено: `message`-listener на `SKIP_WAITING` в генераторе SW + тихий одноразовый `window.location.reload()` на `controllerchange`, отложенный, если открыт незасейвленный редактор.
+## Confirmed baseline
 
-## Пропущено сознательно (не путать с "не готово")
-- **v29 — личный фокус на цикл (старая версия).** Был полностью разработан и протестирован (47/47 тестов) в отдельной сессии, но Павел явно выбрал его пропустить. Скрипт `escada_patch_v29.py` не сохранён как актуальный. Функциональность **переразработана заново как v33** ниже, с учётом v31/v32 (работа с активной шкалой, не только дефолтной) — это отдельная разработка, а не повторный запуск старого скрипта.
+Always verify with `git log --oneline -1 origin/main` before trusting this
+file or any other doc in this repo. As of this consolidation, the confirmed
+chain is:
 
-## Подготовлено, ЕЩЁ НЕ ЗАПУЩЕНО: v31+v32+v33 одним патчем
-`escada_patch_v32.py` лежит в корне репозитория (гитигнорится, не в git), готов к запуску:
+```
+v34 → v35 → v36 → v37 → v38
+```
 
-    python3 escada_patch_v32.py /workspaces/career
+All five are applied and pushed to `origin/main`.
 
-**Почему один скрипт покрывает три номера:** каждый следующий патч технически зависел от кода предыдущего (v32 читает `activeCompetencies`/`customCompetencyScale`, которые появились в v31; v33 читает `activeCompetencies` тем же способом, что и v32), а ни один из трёх ещё не был на `origin/main`, когда разрабатывался следующий. Поэтому все три применяются одним скриптом за один прогон. Имя файла осталось `escada_patch_v32.py` (не переименовывалось при добавлении v33) — если захочется переименовать в `escada_patch_v33.py` для ясности, это чисто косметическое изменение, но пока оставлено как есть, т.к. скрипт уже был проверен дважды под этим именем.
+## What v34–v38 did (Fable Architectural Review roadmap)
 
-### Что делает v31 (загрузка кастомной шкалы, mock)
-- Новые файлы: `app/career/custom-scale.mjs` + `.d.mts` — детерминированный офлайн-парсер (**не настоящий ИИ**, явный дисклеймер в UI), `tests/escada-v11.test.mjs`.
-- `career-core.mjs`: `customCompetencyScale` в состоянии, `resetCycleForNewScale` — полный сброс цикла (notes/ideas/wins/reports/фокус) при замене шкалы.
-- UI внутри «Шкала»: textarea или `.txt/.md` файл → «Разобрать через ИИ (мокап)» → превью → ввод «ПРИМЕНИТЬ» → замена + сброс.
+Source: Deep Architectural & GUI Review from Claude Fable, delivered
+2026-09-04 (`fable-roadmap.md`). All P0 items (critical, data/trust) and
+one P1 item are shipped:
 
-### Что делает v32 (AI retrieval на активной шкале)
-- Новый `app/career/active-scale.mjs` — `deriveActiveScale(customScale)`: если кастомная шкала `status === 'ready'`, строит `allCriteria`/`competencyKeywords`/`knowledgeBaseVersion` из неё (ключевые слова — автогенерация частотным разбором текста критериев); иначе — дефолтная встроенная шкала как раньше.
-- `ai-contract.mjs`: `retrieveCriteria(payload, activeScale)` — `activeScale` теперь параметр с дефолтом (обратная совместимость с `escada-v8.test.mjs`, которые зовут с одним аргументом).
-- `local-guidance.mjs`: `buildLocalGuidance(action, payload, activeScale)` — то же самое, дефолт сохранён.
-- `CareerDashboard.tsx`: `activeScale` вычисляется через `useMemo` из `state.customCompetencyScale`, передаётся в `buildLocalGuidance` (офлайн-фолбэк) и в тело fetch на `ESCADA_AI_ENDPOINT` (поле `customScale` — контракт готов заранее, сервер пока может его игнорировать).
-- Новый `tests/escada-v12.test.mjs` — 10 тестов.
-- Чистка репозитория: удалены `docs/ESCADA_PRODUCT_SPEC_V7.md` (заменён V8) и `docs/PHASE7_QA_REPORT.md` (устаревший разовый отчёт); `README.md` — обновлена структура файлов и список тестов; `escada-product-roadmap.md` — переписан с нуля с реальным статусом патчей вместо устаревшей нумерации.
+- **v34 — Guarded import + hydration safety (Fable P0-1).**
+  `isEscadaState(raw)` structural gate in `career-core.mjs`; `migrateState`
+  refuses garbage input instead of merging unknown keys into live state.
+  Corrupt primary storage key preserved under `escada:corrupt:<iso>` rather
+  than silently falling back to an older key. `escada:backup:<iso>`
+  rotation (last 3) before hydration/import overwrites. `importData`
+  requires explicit confirm with idea/win/report counts. `localStorage`
+  persistence wrapped in try/catch with a recovery banner on quota errors.
 
-### Что делает v33 (личный фокус на цикл)
-- `career-core.mjs`: новое поле `focusCompetencyIds: string[]` в состоянии (top-level, не внутри `profile` — чтобы `resetCycleForNewScale` мог его сбросить наравне с ideas/wins/notes/reports). Новый экспорт `normalizeFocusCompetencyIds(ids)` — структурная валидация (массив непустых строк, дедуп, максимум 3), используется и при миграции, и при сохранении из UI.
-- `computeGrowthPath(state, competencies, focusCompetencyIds?)` — третий параметр опциональный (обратная совместимость с существующими вызовами и тестами). Когда фокус задан и валиден (id реально есть в переданном массиве `competencies`), `underdocumented` и `directions` сужаются до фокуса; `strongSignals` по-прежнему считается по всем артефактам — реальный прогресс не прячется, даже если он вне фокуса. Если сохранённые id фокуса не находят соответствия в активной шкале (например, шкалу заменили), функция ведёт себя так, будто фокуса нет, вместо пустого экрана. Возвращает новое поле `isFocused: boolean`.
-- `CareerDashboard.tsx`: `newIdea`/`emptyWin` получили опциональный `defaultCompetencyIds` — при создании idea/win «с нуля» (не из карточки конкретной компетенции) подставляется `state.focusCompetencyIds`. Новый компонент `FocusManager` внутри вкладки «Мой путь» — чипы для выбора 1–3 компетенций из `activeCompetencies` (значит, работает и с кастомной шкалой v31), локальный черновик до нажатия «Сохранить», кнопка «Сбросить фокус». Копирайт явно говорит, что фокус выбирает человек, а не ИИ.
-- Новые CSS-классы в `career.module.css`: `.competencyChipGrid`, `.chip`, `.chipActive` — в стиле уже существующего `.segmentedControl`.
-- Новый `tests/escada-v13.test.mjs` — 14 тестов на `normalizeFocusCompetencyIds`, `computeGrowthPath` с фокусом (включая случай «id фокуса не существует в шкале» и «фокус не прячет реальные strongSignals»), сброс фокуса при замене шкалы, миграцию.
+- **v35 — Retrieval admission filter + provenance (Fable P0-2).**
+  `retrieveCriteria`'s admission bug fixed: a criterion was previously
+  admitted into AI/local-guidance results whenever `currentBoost` alone
+  cleared the score threshold, with zero real text overlap and zero
+  explicit competency match. Confirmed concretely: an unrelated artifact
+  ("bought bread and milk") got 2 confident "strengths" citing career
+  criteria. Fixed: admission now requires `overlap > 0 || explicitMatch`.
+  `retrieveCriteria` returns a new `matches: {criterion, overlap,
+  explicit}[]` field (backward-compatible — `criteria` bare-array
+  unchanged). `buildLocalGuidance` gates `strengths`/`stretch` on real
+  matches only; empty is now a valid, honest result.
 
-**Проверено дважды на реальном свежем клоне `origin/main` (push отключён), актуально на момент, когда скрипт покрывал только v31+v32 — v33 добавлен в payload после последней проверки и прогнан локально (83/83 тестов, чистый `next build`), но ещё не через полный dry-run на свежем клоне с этим финальным составом файлов.** Перед реальным запуском в Codespaces рекомендуется, если будет время, ещё раз прогнать dry-run на свежем клоне с отключённым push — это не блокер (протокол внутри скрипта сам всё проверит через checksum-guard и REFUSING при малейшем расхождении), но снижает риск сюрприза на последнем шаге.
+- **v36 — Level-signal tie-break + behavior-ref fallback (Fable P0-3, math
+  half).** `inferLevelSignal`: on a genuine score tie between levels
+  (verified: a 3-way tie is reproducible), the old code always picked the
+  *higher* level regardless of the person's actual profile level — silently
+  inflating inferred growth. Fixed: ties resolve to whichever tied level is
+  closest to the profile's current level. `suggestBehaviorRefs`: the
+  zero-overlap fallback ranked by insertion order, not score — fixed to
+  sort by score before slicing.
 
-Перед запуском — стандартная проверка: `git status --porcelain` должен быть пуст (кроме самого `escada_patch_v32.py`), `git pull --ff-only origin main` актуален, `git log --oneline -1` должен быть `f65cfd6`. Если расходится — сначала разобраться, не гадая.
+- **v37 — Accept-chip for AI-suggested level signal (Fable P0-3, UI half).**
+  New `levelSignalConfirmed: boolean` on `Idea`/`Win`, defaulting to `false`
+  everywhere a record is constructed or migrated. `saveIdea`/`saveWin`
+  previously overwrote `levelSignal` unconditionally on every save — any
+  future confirmation would have been silently discarded. Fixed: a
+  confirmed value survives save unless the record's current text no longer
+  supports it (then it resets — no stale confirmations). One-click
+  "Подтвердить" / "✓ Подтверждено" chip added to `IdeaWorkspace`'s existing
+  "Карьерный сигнал" panel. `WinModal` intentionally not touched (no
+  level-signal UI there today — out of scope, not forgotten).
 
-## Открытый артефакт
-`escada-product-roadmap.md` в репозитории переписан в рамках этого спринта — теперь отдельно перечисляет "Применено на main" / "Пропущено сознательно" / "В работе" / "Дальше по очереди", вместо привязки к номерам, которые не совпадали с реальными патчами. При любой сверке ориентироваться на `git log origin/main`, а не на номера в roadmap.
+- **v38 — Report reachability + update-by-id save + real HTML escaping
+  (Fable P1, Patch D).** Closes the long-standing product priority: the
+  "Записал → Развил → Подтвердил → Оформил" funnel used to end with saved
+  reports being unreachable — `state.reports` was never shown on the
+  Reports page at all, only inside the open draft modal, capped at 5.
+  Fixed with a full, uncapped "Сохранённые отчёты" section + type filter.
+  `reportText` no longer doubles as the modal-visibility flag (new
+  `reportDraftOpen: boolean`). `saveReport` now updates in place by
+  `currentReportId` (single "Сохранить" button, per product decision — the
+  roadmap's original two-button "save as new version" design was **not**
+  implemented; Pavel chose single-button update-by-id instead).
+  `generateReport`/`useProfileReportingPeriod` clear `currentReportId` so
+  regenerating or restarting a period never silently overwrites an
+  unrelated saved report. Print/PDF: the report body was already escaped correctly; only title/periodLine (from free-text profile.name) lacked escaping, now fixed.
+  **Dropped from this patch, confirmed with Pavel:** the roadmap's claim
+  that `window.open(..., 'noopener')` returns `null` and print "never
+  worked" — checked against the current MDN `Window.open()` reference,
+  `noopener` nulls the new window's `.opener`, not the return value of
+  `open()` itself. The existing `if (!printWindow)` guard already handles
+  the real failure case (popup blocker) correctly. No change was made
+  there.
 
-Актуальная очередь после v31+v32+v33 (см. roadmap за деталями):
-- **v34** — реальный ИИ-парсинг кастомной шкалы (заменить mock в `custom-scale.mjs`, контракт с сервером уже готов с v32) — **следующий приоритет по прямому запросу Павла ("go with 33, then 34")**
-- **v35** — «Шкала» как ответ, а не энциклопедия (свернуть критерии, поиск/фильтр)
-- **v36** — мягкий ритм возврата (PWA push раз в 1-2 недели)
-- **v37+** — видимость для руководителя (требует бэкенда), лёгкий idea→win, сравнение было/стало
+Test count after v38: **121/121 passing**
+(`tests/escada-v{8,10,11,12,13,14,15,16,17,18}.test.mjs`).
 
-## Протокол (не менять)
-1. Проверить чистый main, `git pull --ff-only origin main`, сверить `git log --oneline` с ожидаемым baseline
-2. Точечные `str.replace` с проверкой уникальности (`count == 1`, иначе REFUSING без изменений) либо, для больших многофайловых изменений — checksum-проверка pristine-содержимого перед полной перезаписью файла (тот же принцип "не трогать, если не уверен, что там")
-3. `npm ci && npm run test:escada && npm run build`
-4. commit + push только при полном успехе всех предыдущих шагов
-5. Патч — новый файл `escada_patch_vN.py` (никогда не переиспользовать имя для НОВОГО патча; но если следующий патч технически зависит от предыдущего непримененного, они могут физически идти одним файлом — см. пункт 9)
-6. При "не сработало" — сначала `git log origin/main`, чтобы понять: скрипт не запускали или запускали, но результат не тот. REFUSING при повторном запуске уже применённого патча — ожидаемое поведение, не баг
-7. Урок из 25 авг 2026: если `git status` показывает неожиданные изменения перед запуском нового патча — остановиться и разобраться (diff по каждому файлу), а не запускать патч поверх
-8. Урок из той же сессии: не использовать bash heredoc (`cat > file << 'EOF'`) для многострочных файлов при вставке через терминал Codespaces — построчная вставка иногда ломает heredoc. Вместо этого — короткий Python-скрипт с многострочной строкой
-9. Урок из этого спринта: если запрошенный патч технически зависит от кода предыдущего непроверенного/непримененного патча — не гадать и не молча пропускать зависимость. Явно спросить, как поступить (запустить сначала предыдущий, объединить в один скрипт, или пересобрать новый патч от текущего реального baseline). Если решение — объединить, это может повториться несколько раз подряд (как случилось с v31→v32→v33) — не нужно каждый раз спрашивать заново, если направление уже подтверждено; но нужно явно фиксировать в handoff, что скрипт вырос за пределы своего изначального номера в имени файла
-10. Урок из этого спринта: перед тем как называть новый патч конкретным номером — свериться с уже упомянутыми в handoff/roadmap зарезервированными номерами, чтобы не создать коллизию, когда пропущенный патч всё же будет применён позже
-11. Урок из этого спринта: если Павел явно отменяет старую фичу, разработанную в прошлой сессии, но не подтверждает, нужно ли её удалить из roadmap насовсем — не удалять молча (необратимо), а по умолчанию оставить в очереди с пометкой, что это открытый вопрос
+## Fable roadmap — what's left
 
-## Следующий номер патча
-v34 (реальный ИИ-парсинг кастомной шкалы) — прямой запрос Павла, работа над ним начинается сразу после доставки v31+v32+v33
+See `fable-roadmap.md` for full detail (kept as the working plan document,
+status header updated). Remaining, roughly in dependency order:
 
-## Стиль общения
-Английский для мышления и кода (по явному запросу Павла с этой сессии — "Continue. Think and code in English"), русский — для содержательных ответов пользователю, если явно не указано иное. Технический код — на английском внутри файлов, UI — на русском. При продуктовых вопросах — сначала анализ реального кода (grep/view), потом рассуждения.
+- **Patch E** — editor identity: id instead of snapshot (P1-5, part of P1-6)
+- **Patch F** — unsaved-work guard + PWA reload safety (P1-6)
+- **Patch G** — AI response validation + payload budget (P1-1, P1-2) — note:
+  `parseAndValidateAiResponse` already exists in `ai-contract.mjs`; verify
+  what it actually covers before assuming this patch is a green-field build
+- **Patch H** — migration normalization + error boundary (P1-4) — note:
+  `career-core.mjs`'s `migrateState` currently does `reports:
+  Array.isArray(raw.reports) ? raw.reports : []` with **no**
+  `normalizeReport` equivalent (unlike `normalizeIdea`/`normalizeWin`) —
+  confirmed while working on v38; this is real, not hypothetical
+- **Patch I** — multi-tab safety (P1-7)
+- **Patch J** — contract cleanup: enums, types, unify inference (P1-9)
+- **Patch K** — scoped AI state per view (P1-10)
+- **Product decision (P1-8, not yet made):** Idea → Work definition —
+  needed before whichever patch touches that surface
 
+Next patch number: **v39** (Fable Patch E, tentatively — confirm against
+`git log origin/main` before starting, per the mandatory protocol).
 
-## v34 — Guarded import + hydration safety (Fable Patch A / P0-1)
+## Separate, pre-Fable feature track (also relevant, not forgotten)
 
-- `isEscadaState(raw)` added to `career-core.mjs`; `migrateState` now refuses garbage input (`{}`, `[]`, `{version: 9}` with no recognizable shape) and returns the fallback unchanged instead of merging unknown keys.
-- Corrupt primary storage key is preserved under `escada:corrupt:<iso>` rather than silently falling back to an older key.
-- `escada:backup:<iso>` rotation (last 3) written before hydration overwrites and before any import overwrite.
-- `importData` now requires an explicit confirm with concrete idea/win/report counts before replacing state.
-- `localStorage.setItem` persistence effect wrapped in try/catch; quota errors surface a persistent recovery banner instead of failing silently.
-- **Note on this document:** this file had drifted — it described a baseline of `f65cfd6` (post-v28) while `origin/main` was actually at `20977ed`, already containing v31-v33 (custom scale, AI retrieval on active scale, personal focus). Confirmed against `git log` on 2026-09-04. This file is being kept in sync with actual commits from v34 onward.
-- Next: v35 — Fable roadmap Patch B (P0-2: retrieval admission filter).
+This roadmap is distinct from the Fable architectural-review work above.
+Status as of this consolidation:
 
+- **v31 — Custom scale upload (mock parser).** Shipped (before the Fable
+  work started; confirmed present in the codebase — `custom-scale.mjs`,
+  `active-scale.mjs`). `parseCustomScaleMock` is a deterministic offline
+  parser, **not** real AI parsing.
+- **v32 — AI retrieval on active scale.** Shipped — `ai-contract.mjs`/
+  `local-guidance.mjs` read the scale through `active-scale.mjs` instead of
+  a static import.
+- **v33 — Personal focus per cycle.** Shipped — `focusCompetencyIds`,
+  `onSetFocus`, narrows "Мой путь" to 1–3 chosen competencies.
+- **Real AI parsing for the custom scale** (replacing `parseCustomScaleMock`
+  with an actual model call) — **still not done**. This was the standing
+  "next priority" noted before the Fable review started; it got superseded
+  in urgency by the Fable P0 items but was never actually completed.
+  `parseCustomScaleMock` is still a mock as of v38.
+- **"Шкала" as answer, not encyclopedia** (collapse the 149-criteria list
+  behind a disclosure by default) — not started.
+- **Soft return-rhythm reminders** (local PWA push, no server) — not
+  started.
 
-## v35 — Retrieval admission filter + provenance metadata (Fable Patch B / P0-2)
+## Mandatory delivery protocol (unchanged, restated for a fresh session)
 
-- `retrieveCriteria` admission fixed: a criterion is only admitted with real token overlap (`overlap > 0`) or an explicit competency match (`explicitMatch`). `currentBoost` remains in the sort score but no longer alone clears admission — previously any current-level criterion was admitted regardless of relevance.
-- `retrieveCriteria` now returns `matches: {criterion, overlap, explicit}[]` alongside the unchanged, backward-compatible `criteria` bare-array.
-- `buildLocalGuidance` (local fallback engine) now builds `currentCriteria`/`targetCriteria` — which feed `strengths`/`stretch` — from `retrieval.matches` filtered to real matches only. Empty strengths/stretch is a valid, honest result now (golden test: an unrelated artifact like buying bread and milk yields `strengths.length === 0`, where before it wrongly cited 2 career criteria as already-matched signals).
-- `sources` and report-draft text generation untouched — they legitimately use the fuller retrieved context, not just matches.
-- tests/escada-v15.test.mjs covers the golden test plus admission-filter and matches-shape invariants.
-- Next: v36 — Fable roadmap Patch C (P0-3: inferLevelSignal tie-break + suggestBehaviorRefs fallback ignoring score). Product decision already made: one-click accept-chip on save for AI competency suggestions.
+1. `git pull --ff-only origin main`; verify `git log --oneline` baseline
+   matches what you expect before writing any patch — **do not trust this
+   file, `escada-product-roadmap.md`, or memory for the exact baseline
+   commit; only `git log` is authoritative.**
+2. One new `escada_patch_vN.py` per patch, never reuse a filename.
+3. Every edit via `str_replace_once`-style exact-match with a uniqueness
+   check (`count == 1`, else `REFUSING` + no changes).
+4. `npm ci && npm run test:escada && npm run build` — full success required.
+5. `git commit` + `git push origin main` only on complete success.
+6. Dirty-tree check excludes files matching `escada_patch_v\d+\.py` only.
+7. Work only on `main`.
+8. Code and commit messages in English; product UI stays in Russian.
 
+## Known project-level facts worth restating for a fresh session
 
-## v36 — Level-signal tie-break + behavior-ref fallback fixes (Fable Patch C, math-only half / P0-3)
-
-- `inferLevelSignal`: on a genuine score tie between levels, no longer defaults to the higher level. Now picks whichever tied level is closest to the person's current profile level. Verified concretely: a 3-way tie (specialist=senior=lead=2) previously always resolved to 'lead' regardless of profile level; now resolves to whichever tied level the profile is actually at (or nearest to it).
-- `suggestBehaviorRefs`: the zero-overlap fallback now ranks ALL candidates by score before slicing, instead of taking the first N in insertion (competency/signal) order. Verified concretely: with two competencies and zero-overlap text, the old code returned a truly zero-scored candidate (`a:senior:1`) while ignoring an equally-scored candidate from the second competency (`b:senior:0`).
-- **Deliberately out of scope for this patch** (per product decision, split into v37): the accept/confirm UX for AI-suggested levelSignal/behaviorRefs. Today these are still auto-saved onto ideas/wins with no confirmed-vs-inferred distinction — the math is now honest, but there is still no UI signal to the person that these are algorithm guesses rather than their own confirmed choice.
-- tests/escada-v16.test.mjs covers both fixes with concrete before/after-reproducing cases.
-- Next: v37 — accept-chip UX for AI-suggested competency/level signals (one-click accept-chip on save, per Pavel's product decision), likely introducing a confirmed/inferred distinction on idea/win records.
-
-
-## v37 — Accept-chip for AI-suggested level signal (Fable Patch C, UI half / P0-3 provenance)
-
-- New `levelSignalConfirmed: boolean` on `Idea` and `Win`. Defaults to `false` at every construction site (newIdea, emptyWin, captureToIdea, captureToWinDraft, noteToIdea, demoState fixtures) and for legacy records normalized/migrated without the field.
-- `promoteIdeaToWin` carries the flag from idea to win.
-- `saveIdea`/`saveWin` no longer unconditionally overwrite `levelSignal` on every save — a confirmed value survives save unless the record's current text no longer supports it, in which case the confirmation is treated as stale and reset.
-- `IdeaWorkspace`: the "Карьерный сигнал" panel gained a one-click accept-chip ("Подтвердить" / "✓ Подтверждено"), with a note that an unconfirmed value is Escada's guess, not a confirmed assessment. Editing text after confirming automatically returns to unconfirmed once the live inference diverges.
-- `WinModal` intentionally NOT touched — it doesn't display the level signal at all today, so adding a whole new UI section there was judged out of scope for this patch; `saveWin`'s protection logic still applies once a confirmed idea is promoted.
-- tests/escada-v17.test.mjs covers confirm-survives-save, confirm-resets-on-stale-text, promote-carries-flag, and migration/construction defaults.
-- This closes the Fable roadmap P0-3 provenance gap fully: v36 fixed the math (tie-break, fallback ranking), v37 adds the confirmed/inferred distinction the product's "transparent growth tracking" promise depends on.
-
-
-## v38 — Report reachability + update-by-id save + real HTML escaping (Fable Patch D / P1)
-
-- Report reachability fixed: `state.reports` was never shown on the Reports page at all before — only inside the open draft modal, capped at the first 5. ReportsView now has a full, uncapped "Сохранённые отчёты" section with a type filter.
-- `reportText` no longer doubles as the modal-visibility flag — new `reportDraftOpen: boolean` state, decoupled from content.
-- `saveReport` now updates in place by id (single "Сохранить" button, per product decision) instead of always creating a new report. New `currentReportId: string | null` state tracks which report is open; `generateReport` clears it (regenerating a draft is not automatically "the same report"), `useProfileReportingPeriod` clears it too.
-- `Report` gained `updatedAt`.
-- Print/PDF HTML escaping: the report body was already escaped correctly; `title`/`periodLine` (built from free-text `profile.name`) were not. `escapeHtml` now covers every interpolated string. (An earlier draft of this note wrongly called the body escaping a no-op -- an artifact of analysis tooling, corrected.)
-- **Dropped from this patch, confirmed with Pavel**: the roadmap's claim that `window.open(..., 'noopener')` returns null and print "never worked". Checked against the current MDN Window.open() reference — `noopener` nulls the new window's `.opener`, not the return value of `open()` itself, which the existing `if (!printWindow)` guard already handles correctly for the real failure case (popup blocker). No change made there.
-- tests/escada-v18.test.mjs: CareerDashboard.tsx has no React test harness (confirmed, consistent with the rest of this project), so this models the report state machine as plain data plus a standalone escapeHtml regression test.
-- Next: Fable roadmap Patch E — editor identity guard (P1).
+- Local-first PWA, no backend, all data in `localStorage`
+  (`escada:v5`, with `escada:v4`/`escada:v3`/`career-os:v2`/`career-os:v1`
+  as legacy fallback keys, plus `escada:backup:*` and `escada:corrupt:*`
+  added in v34).
+- Optional external AI endpoint (`ESCADA_AI_ENDPOINT`) with a mandatory
+  local guidance fallback engine (`local-guidance.mjs`) — must never block
+  the UX when offline.
+- Deploy target: GitHub Pages, `saypavnik-code/career`, `basePath: /career`.
+- No React test harness exists in this project (no testing-library/jsdom/
+  vitest in `package.json`) — all test coverage is pure-logic `.mjs` tests
+  via `node --test`. React/`.tsx` behavior that needs regression coverage
+  gets modeled as a plain-data state machine mirroring the real logic (see
+  `tests/escada-v18.test.mjs` for the pattern).
