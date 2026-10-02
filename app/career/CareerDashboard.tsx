@@ -12,6 +12,7 @@ import {
 } from './career-data'
 import { findCriterion } from './competency-knowledge.mjs'
 import { buildLocalGuidance } from './local-guidance.mjs'
+import { retrieveCriteria, parseAndValidateAiResponse } from './ai-contract.mjs'
 import { deriveActiveScale } from './active-scale.mjs'
 import type { ActiveScale } from './active-scale.mjs'
 import {
@@ -274,6 +275,22 @@ function stateCounts(value: { ideas?: unknown; wins?: unknown; reports?: unknown
   const wins = Array.isArray(value?.wins) ? value!.wins.length : 0
   const reports = Array.isArray(value?.reports) ? value!.reports.length : 0
   return { ideas, wins, reports }
+}
+
+// v42: a partial AI rewrite (e.g. `{title: "x"}` with impact/evidence
+// missing) must not blank out whatever the person already had in those
+// fields -- parseAndValidateAiResponse normalizes a missing field to ''
+// (not undefined), so a plain object spread would silently overwrite
+// existing draft content with empty strings. Only fields with real,
+// non-empty content are merged in. See Fable roadmap Patch G (P1-1).
+function nonEmptyFields<T extends Record<string, unknown>>(source: T | null | undefined): Partial<T> {
+  const result: Partial<T> = {}
+  if (!source) return result
+  for (const key of Object.keys(source) as Array<keyof T>) {
+    const value = source[key]
+    if (typeof value === 'string' ? value.trim() : value != null) result[key] = value
+  }
+  return result
 }
 
 function formatDate(value: string) {
@@ -623,27 +640,52 @@ export default function CareerDashboard() {
     // ready when server-side support lands.
     try {
       if (!ESCADA_AI_ENDPOINT) return buildLocalGuidance(action, payload, activeScale) as unknown as AiResponse
-      const response = await fetch(ESCADA_AI_ENDPOINT, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          profile: aiProfile,
-          artifact,
-          competencyIds,
-          customScale: activeScale.isCustom ? { competencies: activeScale.competencies, knowledgeBaseVersion: activeScale.knowledgeBaseVersion } : null,
-        }),
-      })
-      const data = await response.json() as AiResponse & { message?: string }
+      // v42: a fetch to a genuinely hung endpoint (no response, no network
+      // error) previously left aiBusy set forever, since nothing ever
+      // rejected or resolved. 20s is generous for a guidance request but
+      // still bounded. See Fable roadmap Patch G (P1-1).
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 20000)
+      let response: Response
+      try {
+        response = await fetch(ESCADA_AI_ENDPOINT, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            action,
+            profile: aiProfile,
+            artifact,
+            competencyIds,
+            customScale: activeScale.isCustom ? { competencies: activeScale.competencies, knowledgeBaseVersion: activeScale.knowledgeBaseVersion } : null,
+          }),
+        })
+      } finally {
+        clearTimeout(timeout)
+      }
+      const data = await response.json() as Record<string, unknown> & { message?: string }
       if (!response.ok) throw new Error(data.message || 'Внешняя подсказка вернула ошибку')
-      return data
+      // v42: parseAndValidateAiResponse already existed in ai-contract.mjs
+      // (citation-id allowlisting, per-field length clamps, action-specific
+      // required-field checks) but was never actually called from the
+      // client — an external endpoint's raw response flowed straight into
+      // the UI unvalidated, meaning the closed-world guarantee ("every
+      // strength/stretch item must cite an allowed criterionId") was only
+      // ever enforced by asking the model nicely in the prompt, never by
+      // code. `retrieval` is computed locally (not trusted from the
+      // response) so the allowlist the client validates against can never
+      // be supplied by the same endpoint being validated.
+      const retrieval = retrieveCriteria({ ...payload, action }, activeScale)
+      return parseAndValidateAiResponse(data, retrieval, action) as unknown as AiResponse
     } catch (caughtError) {
       // Escada must remain useful without a network or AI provider: always fall
       // back to local guidance. But a configured endpoint that genuinely failed
-      // (bad response, thrown error) should be visible, not silently hidden —
-      // otherwise the person can't tell 'no endpoint set' from 'endpoint is broken'.
+      // (bad response, thrown error, failed validation, or timed out) should be
+      // visible, not silently hidden — otherwise the person can't tell 'no
+      // endpoint set' from 'endpoint is broken'.
       if (ESCADA_AI_ENDPOINT) {
-        const message = caughtError instanceof Error ? caughtError.message : 'Внешняя подсказка недоступна'
+        const isAbort = caughtError instanceof Error && caughtError.name === 'AbortError'
+        const message = isAbort ? 'Внешняя подсказка не ответила вовремя' : caughtError instanceof Error ? caughtError.message : 'Внешняя подсказка недоступна'
         setAiError(`${message}. Показана локальная подсказка по шкале компетенций.`)
       }
       return buildLocalGuidance(action, payload, activeScale) as unknown as AiResponse
@@ -1634,7 +1676,7 @@ function WinModal({ draft: initial, profile, busy, error, onClose, onSave, onDel
     </div>
 
     {error && <p className={styles.aiError}>{error}</p>}
-    {guidance && <AiGuidancePanel guidance={guidance} compact onApplyRewrite={guidance.rewrite ? () => setDraft({ ...draft, ...(guidance.rewrite ?? {}) }) : undefined} />}
+    {guidance && <AiGuidancePanel guidance={guidance} compact onApplyRewrite={guidance.rewrite ? () => setDraft((current) => ({ ...current, ...nonEmptyFields(guidance.rewrite) })) : undefined} />}
 
     <details className={styles.artifactDetails}>
       <summary>Детали</summary>
