@@ -8,7 +8,7 @@
 
 ## Стек
 
-- Next.js 15 (App Router), TypeScript, CSS Modules
+- Next.js 15 (App Router), TypeScript, единый `app/globals.css`
 - Статический экспорт (`output: 'export'`) для GitHub Pages
 - Данные — в `localStorage` браузера, бэкенд для базовой работы не требуется
 - Опциональная внешняя AI-подсказка через `NEXT_PUBLIC_ESCADA_AI_ENDPOINT`
@@ -17,10 +17,12 @@
 
 ## Разработка
 
+Используйте Node.js 24.
+
 ```bash
 npm ci
 npm run dev          # локальный сервер разработки
-npm run test:escada  # тесты (tests/escada-v8.test.mjs, tests/escada-v10.test.mjs, tests/escada-v11.test.mjs, tests/escada-v12.test.mjs)
+npm run test:escada  # тесты доменной логики, PWA и контракта Performance Review
 npm run build         # статическая сборка в out/
 ```
 
@@ -45,9 +47,11 @@ git rev-parse origin/main
 ## Структура
 
 ```text
+app/globals.css               — общие стили и токены UI
+app/performance-review/       — интервью, история, черновики и контракт агента
+server/                       — локальный шлюз и инструкции интервью
 app/career/
   CareerDashboard.tsx      — весь UI приложения (client component)
-  career.module.css        — дизайн-система August (CSS Modules)
   career-core.mjs           — состояние, миграции localStorage, доменная логика
   career-data.ts             — компетенции, уровни, статические данные (реэкспорт competency-knowledge.mjs)
   competency-knowledge.mjs   — закрытая база критериев встроенной шкалы компетенций (12×3)
@@ -58,8 +62,7 @@ app/career/
 docs/
   ESCADA_PRODUCT_SPEC_V8.md — продуктовая спека
   PRODUCT_CJM_AND_RECOMMENDATIONS.md — CJM пользователя и рекомендации
-tests/
-  escada-v8.test.mjs, escada-v10.test.mjs, escada-v11.test.mjs, escada-v12.test.mjs
+tests/                        — тесты Escada и контракта Performance Review
 ```
 
 ## Принципы продукта
@@ -67,4 +70,23 @@ tests/
 - Эскада — личная память сотрудника, не HR-система и не task-менеджер.
 - Компетенции — ориентир, а не обязательный чеклист; никаких выдуманных процентов.
 - AI/встроенная подсказка вызывается только явной кнопкой, никогда фоном.
-- Данные не покидают устройство пользователя без явного экспорта.
+- Ввод хранится в браузере. Запрос к настроенному AI отправляет контекст соответствующей функции только по действию пользователя.
+
+## Performance Review
+
+В одноимённой вкладке выберите оценку себя или коллеги, укажите период и вставьте пункты из своей формы, по одному на строку. В Self Review можно включить активную шкалу из вкладки «Рост». Каждый запрос содержит пункты и предыдущие ответы этой сессии. Агент выбирает следующий вопрос, учитывает пропуски и отмечает пункты, по которым удалось собрать материал. После интервью соберите и отредактируйте черновик. Self Review также показывает отдельную диагностику Senior / Lead. Peer Review оформляется в четыре фиксированных блока.
+
+Пункты, отправленные ответы и черновики хранятся в этом браузере и видны в «Мои ревью». Они хранятся отдельно от экспорта профиля. Черновики можно копировать из редактора, отдельные ревью можно удалить из истории.
+
+### Подключение локального агента
+
+Шлюз запускается на компьютере, где открыт браузер. Он принимает запросы на `127.0.0.1:8787/review`, сверяет точный origin и передаёт инструкции и данные в OpenAI-совместимый `/v1/chat/completions`. Модель должна поддерживать JSON-ответы через `response_format: {"type":"json_object"}` и иметь контекст для всего интервью. По умолчанию шлюз разрешает локальные origin на порту 3000. Для GitHub Pages добавьте origin сайта без пути репозитория.
+
+```bash
+ESCADA_REVIEW_MODEL='your-model-id' \
+ESCADA_REVIEW_COMPLETIONS_URL='http://127.0.0.1:11434/v1/chat/completions' \
+ESCADA_REVIEW_ORIGINS='http://localhost:3000,https://saypavnik-code.github.io' \
+npm run review:agent
+```
+
+В «Подключение агента» сохраните адрес `http://127.0.0.1:8787/review` и начните интервью. При запросе браузера разрешите доступ к локальной сети для Escada. Чтобы выбрать другой порт, установите `ESCADA_REVIEW_PORT`. Если модель требует ключ, передайте `ESCADA_REVIEW_API_KEY` только в окружении шлюза. Приложение также принимает HTTPS-адрес собственного сервера с реализацией v1 из `app/performance-review/review-contract.mjs`. Существующее подключение AI-подсказок через `NEXT_PUBLIC_ESCADA_AI_ENDPOINT` используется отдельно.

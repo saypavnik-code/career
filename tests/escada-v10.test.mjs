@@ -542,24 +542,23 @@ test('PWA service-worker builder keeps GitHub Pages basePath and offline navigat
 
 test('PWA shell exposes collapsible sidebar, install prompt and offline state', () => {
   const dashboard = readFileSync(new URL('../app/career/CareerDashboard.tsx', import.meta.url), 'utf8')
-  const css = readFileSync(new URL('../app/career/career.module.css', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8')
   assert.match(dashboard, /SIDEBAR_STORAGE_KEY/)
   assert.match(dashboard, /beforeinstallprompt/)
   assert.match(dashboard, /serviceWorker\.register/)
   assert.match(dashboard, /Ctrl\/⌘ B/)
-  assert.match(css, /escada-pwa-shell-v29/)
-  assert.match(css, /shellSidebarCollapsed/)
+  assert.doesNotMatch(css, /!important/)
+  assert.match(css, /\.escada-shell-sidebar-collapsed/)
 })
 
 // v30 card readability and active-archive UI cleanup
 
-test('v30 Today and Ideas cards use the responsive readability layer', () => {
-  const css = readFileSync(new URL('../app/career/career.module.css', import.meta.url), 'utf8')
-  assert.match(css, /escada-card-readability-v30/)
+test('Today and Ideas cards keep responsive widths and title weights', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8')
   assert.match(css, /repeat\(auto-fit, minmax\(min\(100%, 260px\), 1fr\)\)/)
-  assert.match(css, /\.noteCard h4[\s\S]*?font-weight:\s*500/)
-  assert.match(css, /\.kanbanCard h4[\s\S]*?font-weight:\s*500/)
-  assert.match(css, /@media \(max-width: 560px\)[\s\S]*?\.pinBoard \{ grid-template-columns: 1fr; \}/)
+  assert.match(css, /\.escada-note-card h4[\s\S]*?font-weight:\s*500/)
+  assert.match(css, /\.escada-kanban-card h4[\s\S]*?font-weight:\s*500/)
+  assert.match(css, /@media \(max-width: 560px\)[\s\S]*?\.escada-pin-board \{ grid-template-columns: 1fr; \}/)
 })
 
 test('v30 removes active idea archive actions while keeping legacy archive recovery', () => {

@@ -1,3 +1,4 @@
+import './globals.css'
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
 
@@ -29,9 +30,9 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: '#f7f8fc',
+  themeColor: '#f5f6fa',
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  return <html lang="ru"><body style={{ margin: 0 }}>{children}</body></html>
+  return <html lang="ru"><body>{children}</body></html>
 }

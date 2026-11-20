@@ -1,5 +1,5 @@
 import type { Competency } from './career-data'
-import type { CustomCompetencyScale } from './custom-scale'
+import type { CustomCompetencyScale } from './custom-scale.mjs'
 
 export interface ActiveScale {
   competencies: Competency[]
