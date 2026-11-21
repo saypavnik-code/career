@@ -1,31 +1,36 @@
+import type { ReviewLevel } from './review-rubric.mjs'
+
 export const REVIEW_VERSION: 1
-export const LIMITS: Readonly<Record<'points' | 'point' | 'turns' | 'answer' | 'question' | 'sections' | 'diagnostics' | 'criteria' | 'bytes', number>>
+export const SELF_REVIEW_VERSION: 2
+type ReviewVersion = typeof REVIEW_VERSION | typeof SELF_REVIEW_VERSION
+export const LIMITS: Readonly<Record<'points' | 'point' | 'turns' | 'answer' | 'question' | 'sections' | 'diagnostics' | 'assessmentNote' | 'bytes', number>>
 export const PEER_SECTIONS: readonly string[]
 
 export type ReviewMode = 'self' | 'peer'
 export type ReviewQuestion = { point: number; text: string }
 export type ReviewTurn = ReviewQuestion & { answer: string | null }
-export type ReviewCriterion = {
-  id: string
-  competency: string
-  level: 'specialist' | 'senior' | 'lead'
-  text: string
+export type CompetencyAssessment = {
+  competencyId: string
+  status: 'evidenced' | 'insufficient' | 'not_applicable'
+  note: string
+  criterionIds: string[]
+  turnIds: number[]
 }
 export type ReviewRequest = {
-  version: typeof REVIEW_VERSION
   action: 'next' | 'draft'
-  mode: ReviewMode
   subject: string
   period: string
   points: string[]
-  matrix: ReviewCriterion[]
   turns: ReviewTurn[]
-}
-type Coverage = { version: typeof REVIEW_VERSION; covered: number[]; missing: number[] }
+} & (
+  | { mode: 'self'; version: typeof SELF_REVIEW_VERSION; level: ReviewLevel }
+  | { mode: 'peer'; version: typeof REVIEW_VERSION; matrix: [] }
+)
+type Coverage = { version: ReviewVersion; covered: number[]; missing: number[] }
 export type ReviewResponse =
   | (Coverage & { kind: 'question'; question: ReviewQuestion })
   | (Coverage & { kind: 'ready' })
-  | { version: typeof REVIEW_VERSION; kind: 'draft'; sections: { id: number; text: string }[]; diagnostics: string }
+  | { version: ReviewVersion; kind: 'draft'; sections: { id: number; text: string }[]; diagnostics: string; assessment?: CompetencyAssessment[] }
 
 export function validateReviewRequest(value: unknown): ReviewRequest
 export function validateReviewResponse(value: unknown, request: ReviewRequest): ReviewResponse

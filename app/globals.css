@@ -2079,7 +2079,7 @@ label.escada-artifact-checkbox {
   margin-top: 14px;
 }
 
-.escada-review-card :is(input:not([type="radio"], [type="checkbox"]), textarea) {
+.escada-review-card :is(input:not([type="radio"], [type="checkbox"]), select, textarea) {
   width: 100%;
   min-height: 44px;
   min-width: 0;
@@ -2125,8 +2125,7 @@ label.escada-artifact-checkbox {
   font-weight: 650;
 }
 
-.escada-review-modes label,
-.escada-review-card .escada-review-checkbox {
+.escada-review-modes label {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 8px;
@@ -2232,6 +2231,27 @@ label.escada-artifact-checkbox {
 .escada-review-transcript li { overflow-wrap: anywhere; }
 .escada-review-transcript p { margin-top: 4px; color: var(--muted); }
 .escada-review-diagnostics p { margin-top: 10px; }
+
+.escada-review-rubric > ul {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.escada-review-rubric > p { margin-top: 9px; }
+
+.escada-review-rubric > ul > li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.escada-review-rubric li ul { padding-inline-start: 20px; }
 
 .escada-review-alert,
 .escada-review-notice {

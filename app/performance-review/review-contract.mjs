@@ -1,4 +1,7 @@
+import { getReviewRubric, isReviewLevel } from './review-rubric.mjs'
+
 export const REVIEW_VERSION = 1
+export const SELF_REVIEW_VERSION = 2
 export const LIMITS = Object.freeze({
   points: 20,
   point: 700,
@@ -7,7 +10,7 @@ export const LIMITS = Object.freeze({
   question: 900,
   sections: 6500,
   diagnostics: 10000,
-  criteria: 200,
+  assessmentNote: 750,
   bytes: 1024 * 1024,
 })
 export const PEER_SECTIONS = Object.freeze([
@@ -53,20 +56,44 @@ function unique(values) {
   return values
 }
 
-function criteria(value) {
-  const entry = object(value)
-  if (!['specialist', 'senior', 'lead'].includes(entry.level)) invalid()
-  return {
-    id: string(entry.id, 150),
-    competency: string(entry.competency, 300),
-    level: entry.level,
-    text: string(entry.text, 1500),
+function validateAssessment(value, request) {
+  const { competencies } = getReviewRubric(request.level)
+  const byId = new Map(competencies.map((competency) => [competency.id, competency]))
+  const answeredTurns = request.turns.flatMap((turn, index) => turn.answer === null ? [] : [index + 1])
+  const assessments = new Map()
+
+  const entries = list(value, competencies.length, (entry) => object(entry))
+  for (const entry of entries) {
+    const competency = byId.get(entry.competencyId)
+    if (!competency || assessments.has(competency.id)) invalid()
+    if (!['evidenced', 'insufficient', 'not_applicable'].includes(entry.status)) invalid()
+    const allowedCriteria = new Set(competency.criteria.map((criterion) => criterion.id))
+    const criterionIds = unique(list(entry.criterionIds, competency.criteria.length, (criterionId) => {
+      if (!allowedCriteria.has(criterionId)) invalid()
+      return criterionId
+    }))
+    const turnIds = unique(list(entry.turnIds, answeredTurns.length, (turnId) => id(turnId, answeredTurns)))
+    if (entry.status === 'evidenced' && (!criterionIds.length || !turnIds.length)) invalid()
+    if (entry.status === 'not_applicable' && (criterionIds.length || turnIds.length)) invalid()
+    assessments.set(competency.id, {
+      competencyId: competency.id,
+      status: entry.status,
+      note: string(entry.note, LIMITS.assessmentNote),
+      criterionIds,
+      turnIds,
+    })
   }
+
+  if (assessments.size !== competencies.length) invalid()
+  return competencies.map(({ id }) => assessments.get(id))
 }
 
 export function validateReviewRequest(value) {
   const data = object(value)
-  if (data.version !== REVIEW_VERSION || !['self', 'peer'].includes(data.mode) || !['next', 'draft'].includes(data.action)) invalid()
+  if (!['self', 'peer'].includes(data.mode) || !['next', 'draft'].includes(data.action)) invalid()
+  const isSelf = data.mode === 'self'
+  const version = isSelf ? SELF_REVIEW_VERSION : REVIEW_VERSION
+  if (data.version !== version || (isSelf && !isReviewLevel(data.level))) invalid()
   const points = unique(list(data.points, LIMITS.points, (point) => string(point, LIMITS.point)))
   if (!points.length) invalid()
   const pointIds = points.map((_, index) => index + 1)
@@ -82,20 +109,20 @@ export function validateReviewRequest(value) {
     if (!turns.some((entry) => entry.answer !== null) || (attempted.size < points.length && turns.length < LIMITS.turns)) invalid()
   }
   return {
-    version: REVIEW_VERSION,
+    version,
     action: data.action,
     mode: data.mode,
     period: string(data.period, 100),
     subject: data.mode === 'peer' ? string(data.subject, 150) : '',
     points,
     turns,
-    matrix: data.mode === 'self' ? list(data.matrix ?? [], LIMITS.criteria, criteria) : [],
+    ...(isSelf ? { level: data.level } : { matrix: [] }),
   }
 }
 
 export function validateReviewResponse(value, request) {
   const data = object(value)
-  if (data.version !== REVIEW_VERSION) invalid()
+  if (data.version !== request.version) invalid()
   const pointIds = request.points.map((_, index) => index + 1)
   if (request.action === 'draft') {
     const sectionIds = request.mode === 'peer' ? [1, 2, 3, 4] : pointIds
@@ -107,7 +134,11 @@ export function validateReviewResponse(value, request) {
     if (sections.length !== sectionIds.length) invalid()
     unique(sections.map((section) => section.id))
     const diagnostics = request.mode === 'self' ? string(data.diagnostics, LIMITS.diagnostics) : ''
-    return { version: REVIEW_VERSION, kind: 'draft', sections: sections.sort((a, b) => a.id - b.id), diagnostics }
+    const assessment = request.mode === 'self' ? validateAssessment(data.assessment, request) : undefined
+    return {
+      version: request.version, kind: 'draft', sections: sections.sort((a, b) => a.id - b.id), diagnostics,
+      ...(assessment ? { assessment } : {}),
+    }
   }
 
   if (!['question', 'ready'].includes(data.kind)) invalid()
@@ -119,12 +150,12 @@ export function validateReviewResponse(value, request) {
 
   if (data.kind === 'ready') {
     if (pointIds.some((point) => !attempted.has(point) || (!covered.includes(point) && !missing.includes(point)))) invalid()
-    return { version: REVIEW_VERSION, kind: 'ready', covered, missing }
+    return { version: request.version, kind: 'ready', covered, missing }
   }
 
   if (request.turns.length >= LIMITS.turns) invalid()
   const next = question(data.question, pointIds)
   const normalized = next.text.toLocaleLowerCase('ru').replace(/\s+/g, ' ')
   if (request.turns.some((entry) => entry.text.toLocaleLowerCase('ru').replace(/\s+/g, ' ') === normalized)) invalid()
-  return { version: REVIEW_VERSION, kind: 'question', question: next, covered, missing }
+  return { version: request.version, kind: 'question', question: next, covered, missing }
 }

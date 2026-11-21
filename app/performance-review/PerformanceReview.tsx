@@ -2,16 +2,17 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import type { ActiveScale } from '../career/active-scale.mjs'
-import { LIMITS, PEER_SECTIONS, REVIEW_VERSION, validateReviewRequest, validateReviewResponse } from './review-contract.mjs'
-import type { ReviewCriterion, ReviewMode, ReviewQuestion, ReviewRequest, ReviewTurn } from './review-contract.mjs'
+import { LIMITS, PEER_SECTIONS, REVIEW_VERSION, SELF_REVIEW_VERSION, validateReviewRequest, validateReviewResponse } from './review-contract.mjs'
+import type { CompetencyAssessment, ReviewMode, ReviewQuestion, ReviewRequest, ReviewTurn } from './review-contract.mjs'
+import { getReviewRubric, isReviewLevel, REVIEW_LEVEL_LABELS } from './review-rubric.mjs'
+import type { ReviewLevel } from './review-rubric.mjs'
 
 const STORAGE_KEY = 'escada:performance-review:v1'
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:8787/review'
 const HISTORY_DATE = new Intl.DateTimeFormat('ru', { dateStyle: 'medium' })
 const MODE_LABELS = { self: 'Оценка себя', peer: 'Оценка коллеги' } satisfies Record<ReviewMode, string>
 const MODE_DESCRIPTIONS = {
-  self: 'Соберите доказательства вклада и оцените готовность к уровню Lead.',
+  self: 'Сопоставьте рабочие результаты с ожиданиями для вашего уровня.',
   peer: 'Подготовьте обратную связь на основе ваших наблюдений.',
 } satisfies Record<ReviewMode, string>
 
@@ -21,7 +22,8 @@ type Session = {
   subject: string
   period: string
   points: string[]
-  matrix: ReviewCriterion[]
+  level?: ReviewLevel | null
+  assessment?: CompetencyAssessment[]
   turns: ReviewTurn[]
   question: ReviewQuestion | null
   covered: number[]
@@ -76,7 +78,50 @@ function parsePoints(value: string) {
   ).filter(Boolean))]
 }
 
-export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
+const ASSESSMENT_LABELS: Record<CompetencyAssessment['status'], string> = {
+  evidenced: 'Есть подтверждение',
+  insufficient: 'Недостаточно данных',
+  not_applicable: 'Вне зоны работы',
+}
+
+function LevelSelect({ level, onChange }: { level: ReviewLevel; onChange: (level: ReviewLevel) => void }) {
+  return (
+    <label>Ваш уровень
+      <select value={level} onChange={(event) => { if (isReviewLevel(event.target.value)) onChange(event.target.value) }}>
+        {Object.entries(REVIEW_LEVEL_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+      </select>
+    </label>
+  )
+}
+
+function ReviewRubric({ level, assessment }: { level: ReviewLevel; assessment?: CompetencyAssessment[] }) {
+  const { competencies, source } = getReviewRubric(level)
+  const findings = new Map(assessment?.map((entry) => [entry.competencyId, entry]))
+  return (
+    <details className="escada-review-rubric" open={assessment ? true : undefined}>
+      <summary>{assessment ? 'Оценка по шкале компетенций' : 'Компетенции выбранного уровня'}</summary>
+      {source === 'working_guidance' && <p>Для младшего специалиста используется рабочий ориентир на основе шкалы Digital Marketing.</p>}
+      <ul>
+        {competencies.map((competency) => {
+          const finding = findings.get(competency.id)
+          const criteria = finding ? competency.criteria.filter(({ id }) => finding.criterionIds.includes(id)) : competency.criteria
+          return (
+            <li key={competency.id}>
+              <strong>{competency.title}</strong>
+              {finding && <><small>{ASSESSMENT_LABELS[finding.status]}</small><p>{finding.note}</p></>}
+              {criteria.length > 0 && <ul>{criteria.map((criterion) =>
+                <li key={criterion.id}>{criterion.text}{criterion.sourcePage && <small> · стр. {criterion.sourcePage}</small>}</li>
+              )}</ul>}
+              {finding && finding.turnIds.length > 0 && <small>Ответы интервью № {finding.turnIds.join(', ')}</small>}
+            </li>
+          )
+        })}
+      </ul>
+    </details>
+  )
+}
+
+export default function PerformanceReview({ profileLevel }: { profileLevel: ReviewLevel }) {
   const [initial] = useState(loadShelf)
   const [shelf, setShelf] = useState(initial.shelf)
   const [storageError, setStorageError] = useState(initial.error)
@@ -85,7 +130,8 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
   const [subject, setSubject] = useState('')
   const [period, setPeriod] = useState('H2 2026')
   const [pointsText, setPointsText] = useState('')
-  const [includeMatrix, setIncludeMatrix] = useState(true)
+  const [selectedLevel, setLevel] = useState<ReviewLevel | null>(null)
+  const level = selectedLevel ?? profileLevel
   const [endpointText, setEndpointText] = useState(initial.shelf.endpoint || DEFAULT_ENDPOINT)
   const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState<ReviewRequest['action'] | null>(null)
@@ -139,17 +185,9 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
       setError('Заполните период и, для оценки коллеги, имя.')
       return
     }
-    const matrix = mode === 'self' && includeMatrix
-      ? scale.allCriteria.slice(0, LIMITS.criteria).map((criterion) => ({
-        id: criterion.id.slice(0, 150),
-        competency: criterion.competencyTitle.slice(0, 300),
-        level: criterion.level,
-        text: criterion.text.slice(0, 1500),
-      }))
-      : []
     const entry: Session = {
       id: crypto.randomUUID(), mode, subject: mode === 'peer' ? subject.trim() : '', period: period.trim(),
-      points, matrix, turns: [], question: null, covered: [], missing: [], ready: false,
+      points, level: mode === 'self' ? level : null, turns: [], question: null, covered: [], missing: [], ready: false,
       updatedAt: new Date().toISOString(), draft: null, diagnostics: '',
     }
     saveSession(entry)
@@ -173,7 +211,7 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
   }
 
   async function ask(entry: Session, action: ReviewRequest['action']) {
-    if (activeRequest.current || !shelf.endpoint) return
+    if (activeRequest.current || !shelf.endpoint || (entry.mode === 'self' && !isReviewLevel(entry.level))) return
     resetMessages()
     const controller = new AbortController()
     const timeout = AbortSignal.timeout(125000)
@@ -181,8 +219,9 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
     setBusy(action)
     try {
       const payload = validateReviewRequest({
-        version: REVIEW_VERSION, action, mode: entry.mode, subject: entry.subject,
-        period: entry.period, points: entry.points, turns: entry.turns, matrix: entry.matrix,
+        version: entry.mode === 'self' ? SELF_REVIEW_VERSION : REVIEW_VERSION,
+        action, mode: entry.mode, subject: entry.subject, level: entry.level,
+        period: entry.period, points: entry.points, turns: entry.turns,
       })
       const response = await fetch(parseEndpoint(shelf.endpoint), {
         method: 'POST',
@@ -210,7 +249,7 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
       if (result.kind === 'draft') {
         const headings = entry.mode === 'peer' ? PEER_SECTIONS : entry.points
         const draft = result.sections.map(({ id, text }) => `${headings[id - 1]}\n\n${text}`).join('\n\n')
-        saveSession({ ...updated, draft, diagnostics: result.diagnostics })
+        saveSession({ ...updated, draft, diagnostics: result.diagnostics, assessment: result.assessment })
       } else {
         saveSession({
           ...updated, ready: result.kind === 'ready', covered: result.covered, missing: result.missing,
@@ -265,6 +304,7 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
     }
   }
 
+  const needsLevel = session?.mode === 'self' && session.draft === null && !isReviewLevel(session.level)
   const hasEvidence = session?.turns.some((turn) => turn.answer !== null) ?? false
   const canContinue = session && !session.ready && session.turns.length < LIMITS.turns
   const allPointsAsked = session?.points.every((_, index) =>
@@ -276,7 +316,7 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
       <header className="escada-review-hero">
         <div>
           <h2>{session ? title(session) : 'Подготовка к ревью'}</h2>
-          <p>{session ? session.period : 'Добавьте пункты оценки, пройдите интервью и соберите черновик.'}</p>
+          <p>{session ? [session.period, session.level ? REVIEW_LEVEL_LABELS[session.level] : null].filter(Boolean).join(' · ') : 'Добавьте пункты оценки, пройдите интервью и соберите черновик.'}</p>
         </div>
         {session && <button className="escada-secondary-button" type="button" disabled={busy !== null} onClick={() => open(null)}>Новое ревью</button>}
       </header>
@@ -299,24 +339,30 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
               </fieldset>
               <div className="escada-review-fields">
                 <label>Период<input value={period} maxLength={100} onChange={(event) => setPeriod(event.target.value)} required /></label>
-                {mode === 'peer' && <label>Имя коллеги<input value={subject} maxLength={150} onChange={(event) => setSubject(event.target.value)} required /></label>}
+                {mode === 'peer'
+                  ? <label>Имя коллеги<input value={subject} maxLength={150} onChange={(event) => setSubject(event.target.value)} required /></label>
+                  : <LevelSelect level={level} onChange={setLevel} />}
               </div>
               <label>Пункты Performance Review
                 <textarea rows={7} value={pointsText} maxLength={LIMITS.points * (LIMITS.point + 8)} onChange={(event) => setPointsText(event.target.value)} aria-describedby="review-points-help" required />
               </label>
               <small id="review-points-help">Вставьте пункты из вашей формы. Один пункт на строку.</small>
-              {mode === 'self' && (
-                <label className="escada-review-checkbox">
-                  <input type="checkbox" checked={includeMatrix} onChange={(event) => setIncludeMatrix(event.target.checked)} />
-                  <span>Использовать активную шкалу компетенций ({scale.isCustom ? 'загруженная' : 'встроенная'})
-                    {scale.allCriteria.length > LIMITS.criteria && <small> · первые {LIMITS.criteria} критериев</small>}
-                  </span>
-                </label>
-              )}
+              {mode === 'self' && <ReviewRubric level={level} />}
               <button className="escada-primary-button" type="submit">Подготовить интервью</button>
             </form>
           )}
-          {session && session.draft === null && (
+          {session && needsLevel && (
+            <form className="escada-review-card" onSubmit={(event) => {
+              event.preventDefault()
+              saveSession({ ...session, level, updatedAt: new Date().toISOString() })
+            }}>
+              <h3>Укажите уровень для этого интервью</h3>
+              <p>Вопросы и итоговая оценка будут опираться на выбранный уровень.</p>
+              <LevelSelect level={level} onChange={setLevel} />
+              <button className="escada-primary-button" type="submit">Сохранить уровень</button>
+            </form>
+          )}
+          {session && session.draft === null && !needsLevel && (
             <section className="escada-review-card" aria-labelledby="review-question">
               <h3 id="review-question" ref={questionHeading} tabIndex={-1}>
                 {session.question?.text || (session.ready ? 'Интервью завершено' : 'Интервью')}
@@ -341,10 +387,11 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
           )}
           {session && session.draft !== null && (
             <section className="escada-review-card">
-              {session.diagnostics && <details className="escada-review-diagnostics" open><summary>Диагностика и сигналы уровня Lead</summary><p>{session.diagnostics}</p></details>}
+              {session.diagnostics && <details className="escada-review-diagnostics" open><summary>Выводы по интервью</summary><p>{session.diagnostics}</p></details>}
               <label>Черновик<textarea rows={18} value={session.draft} maxLength={150000}
                 onChange={(event) => saveSession({ ...session, draft: event.target.value, updatedAt: new Date().toISOString() })} /></label>
               <button className="escada-primary-button" type="button" disabled={!session.draft.trim()} onClick={() => void copyDraft(session.draft ?? '')}>Скопировать текст</button>
+              {isReviewLevel(session.level) && session.assessment && <ReviewRubric level={session.level} assessment={session.assessment} />}
             </section>
           )}
           {session && session.turns.length > 0 && (
@@ -380,7 +427,7 @@ export default function PerformanceReview({ scale }: { scale: ActiveScale }) {
               <ul className="escada-review-history">{shelf.sessions.map((entry) => (
                 <li key={entry.id}>
                   <button type="button" aria-current={entry.id === sessionId ? 'true' : undefined} disabled={busy !== null} onClick={() => open(entry.id)}>
-                    <strong>{title(entry)}</strong><small>{entry.period} · {entry.draft === null ? 'Интервью' : 'Черновик'} · {HISTORY_DATE.format(new Date(entry.updatedAt))}</small>
+                    <strong>{title(entry)}</strong><small>{entry.level && <>{REVIEW_LEVEL_LABELS[entry.level]} · </>}{entry.period} · {entry.draft === null ? 'Интервью' : 'Черновик'} · {HISTORY_DATE.format(new Date(entry.updatedAt))}</small>
                   </button>
                 </li>
               ))}</ul>

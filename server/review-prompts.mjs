@@ -1,3 +1,4 @@
+import { getReviewRubric } from '../app/performance-review/review-rubric.mjs'
 import { LIMITS, PEER_SECTIONS } from '../app/performance-review/review-contract.mjs'
 
 const PROJECT_INSTRUCTIONS = `
@@ -24,22 +25,20 @@ Return one valid JSON object, without code fences, enclosing prose or extra fiel
 `.trim()
 
 const SELF_INSTRUCTIONS = `
-Self Review H2 2026 is a career partnership. The supplied period identifies the current review.
-The user's goal is Lead (Ведущий специалист) in Digital Marketing. Show a reliable Senior executor who is beginning to
-influence strategy where evidence supports it. Use the supplied competency matrix as the main reference when it is
-available. Treat criteria as a framework, not a checklist or claims about the user. If unavailable, flag that limitation.
-Look for independently found opportunities, quality and precision, optimal solutions, hypotheses, data-driven decisions,
-ownership, large initiatives with predictable local business effect, long-term channel strategy and trends, standards,
-adoption of tools, market accountability, mentoring, help to peers, scalable practices, SEO/GEO/AEO and conversion paths,
-brand voice and expert content, PR/reputation, forecasting and cross-functional leadership. Separate Specialist, Senior
-and Lead signals. Never inflate evidence to support a promotion. Ask which observable evidence is still missing.
+The supplied period identifies the current review. Evaluate the employee at the selected level, using the competency rubric
+as the mandatory standard for that level. Its criteria are expectations, not facts about the employee. The Junior working
+guidance is an adaptation, not an official grade. Use next-level criteria only to suggest growth or identify supported
+signals beyond the selected level. For Lead, suggest ways to deepen impact within the same level.
+Prefer questions that gather concrete evidence for the selected level's relevant criteria. Use the employee's actual job
+scope rather than assuming every area applies. Examine all rubric areas when drafting; distinguish a real gap in evidence
+from a competency outside the employee's work. Never infer that an undocumented criterion is a performance failure.
 In interview mode aim for roughly 25 questions, adapting to the supplied points, answers and skips. Cover business results,
 strategy, data, AI and automation, content/brand, team, setbacks and growth, work beyond the role, and future goals where
 relevant. For meaningful achievements assess what was done, why, business relevance, result, mechanism, competency,
 level, ownership/initiative/data/AI/scale/team impact and what to verify next. Ask concise follow-ups as needed.
-In draft mode prepare diagnostics first: the 5–7 strongest achievements if available, business results, Senior vs Lead
-evidence, gaps and metrics to verify, initiatives to spotlight, growth areas, and goals for next period. Cite matrix criterion
-IDs only when provided and relevant. Then write a first-person self-review with one section per supplied point. Explain
+In draft mode prepare diagnostics first: the 5–7 strongest achievements if available, business results, evidence at the selected level, gaps and metrics to verify, and goals for the next period. Base the prose
+on the assessment and interview. Connect real examples to the applicable selected-level skills in plain language, using
+next-level signals as growth context only. Preserve one first-person section per supplied point. Explain
 setbacks through what happened, why, what changed and next steps. Make goals measurable where evidence permits:
 what, why, metric, deadline and success criterion. Never invent missing targets.
 `.trim()
@@ -58,16 +57,24 @@ the gap in the section where it belongs. Avoid generic compliments and lists of 
 `.trim()
 
 export function buildReviewMessages(request) {
+  const rubric = request.mode === 'self' ? getReviewRubric(request.level) : null
   const points = request.points.map((text, index) => ({ id: index + 1, text }))
   const draftSections = request.mode === 'peer'
     ? PEER_SECTIONS.map((title, index) => ({ id: index + 1, title }))
     : points.map(({ id, text }) => ({ id, title: text }))
   const schema = request.action === 'draft'
-    ? `Return {"version":1,"kind":"draft","diagnostics":${request.mode === 'self' ? '"Russian assessment before the draft"' : '""'},"sections":[{"id":1,"text":"Prose for this section"}]}.
+    ? `Return {"version":${request.version},"kind":"draft","diagnostics":${request.mode === 'self' ? '"Russian assessment before the draft"' : '""'},"sections":[{"id":1,"text":"Prose for this section"}]}.
 Return every draft section exactly once. Each section text must be at most ${LIMITS.sections} characters.
-Include only the section prose in text. The application inserts the headings.`
-    : `Return {"version":1,"kind":"question","question":{"point":1,"text":"One precise question in Russian"},"covered":[],"missing":[]}
-or {"version":1,"kind":"ready","covered":[],"missing":[]}. Arrays contain only supplied point IDs. Mark a point covered
+Include only the section prose in text. The application inserts the headings.${rubric ? `
+Also include an "assessment" array with one item per competency in the rubric, using this structure:
+{"competencyId":"supplied competency ID","status":"evidenced","note":"Explanation in Russian","criterionIds":[],"turnIds":[]}.
+Use "evidenced" only for a selected-level criterion supported by concrete observations; require at least one supplied
+current-level criterion ID for that competency and one answered transcript turn ID. Use "insufficient" when there is
+too little evidence and specify what to verify. Use "not_applicable" with empty arrays when the work scope excludes it.
+When the scope is uncertain, use "insufficient". Never cite a skipped turn or a next-level criterion in assessment.
+Each note must be at most ${LIMITS.assessmentNote} characters.` : ''}`
+    : `Return {"version":${request.version},"kind":"question","question":{"point":1,"text":"One precise question in Russian"},"covered":[],"missing":[]}
+or {"version":${request.version},"kind":"ready","covered":[],"missing":[]}. Arrays contain only supplied point IDs. Mark a point covered
 only if there is usable evidence and at least one non-skipped turn assigned to that ID. Mark unresolved points missing if
 there is no credible evidence or the user explicitly does not know. A ready response is allowed only once every point has
 been asked about and classified, with the interview targets treated as approximate. Do not write review prose yet.`
@@ -81,8 +88,10 @@ been asked about and classified, with the interview targets treated as approxima
         period: request.period,
         subject: request.subject,
         points,
-        transcript: request.turns,
-        competencyMatrix: request.matrix,
+        transcript: rubric
+          ? request.turns.map((turn, index) => ({ id: index + 1, ...turn }))
+          : request.turns,
+        ...(rubric ? { competencyRubric: rubric } : { competencyMatrix: [] }),
         ...(request.action === 'draft' ? { draftSections } : {}),
       }),
     },
