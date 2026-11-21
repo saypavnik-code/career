@@ -927,7 +927,7 @@ export function winGapHints(win) {
   return hints.slice(0, 3)
 }
 
-export function deleteWin(state, winId) {
+export function deleteWin(state, winId, deletedAt = new Date().toISOString()) {
   const wins = Array.isArray(state?.wins) ? state.wins : []
   const reports = Array.isArray(state?.reports) ? state.reports : []
   const ideas = Array.isArray(state?.ideas) ? state.ideas : null
@@ -940,7 +940,7 @@ export function deleteWin(state, winId) {
     wins: remainingWins,
     ...(ideas ? { ideas: ideas.map((idea) => (
       sourceIdeaId && !sourceStillHasWin && idea.id === sourceIdeaId && idea.status === 'won'
-        ? { ...idea, status: 'outcomes', updatedAt: new Date().toISOString() }
+        ? { ...idea, status: 'outcomes', updatedAt: deletedAt }
         : idea
     )) } : {}),
     reports: reports.map((report) => (
@@ -948,6 +948,48 @@ export function deleteWin(state, winId) {
         ? { ...report, winIds: report.winIds.filter((id) => id !== winId) }
         : report
     )),
+  }
+}
+
+// Capture the records affected by a deletion so undo can preserve unrelated edits.
+export function captureWinDeletion(state, id, deletedAt = new Date().toISOString()) {
+  const index = state.wins.findIndex((item) => item.id === id)
+  if (index === -1) return null
+  const win = state.wins[index]
+  const source = state.ideas.find((idea) => idea.id === win.sourceIdeaId && idea.status === 'won')
+  return {
+    win,
+    index,
+    deletedAt,
+    source: source ? { id: source.id, updatedAt: source.updatedAt } : null,
+    reports: state.reports.flatMap((report) => {
+      const index = report.winIds?.indexOf(id) ?? -1
+      return index < 0 ? [] : [{ id: report.id, index }]
+    }),
+  }
+}
+
+export function restoreDeletedWin(state, deletion) {
+  const { win, index, source, reports, deletedAt } = deletion
+  if (state.wins.some((item) => item.id === win.id)) return state
+  const wins = state.wins.slice()
+  wins.splice(index, 0, win)
+  const references = new Map(reports.map((report) => [report.id, report.index]))
+  return {
+    ...state,
+    wins,
+    ideas: state.ideas.map((idea) => (
+      source && idea.id === source.id && idea.status === 'outcomes' && idea.updatedAt === deletedAt
+        ? { ...idea, status: 'won', updatedAt: source.updatedAt }
+        : idea
+    )),
+    reports: state.reports.map((report) => {
+      const index = references.get(report.id)
+      if (index === undefined || report.winIds?.includes(win.id)) return report
+      const winIds = (report.winIds ?? []).slice()
+      winIds.splice(index, 0, win.id)
+      return { ...report, winIds }
+    }),
   }
 }
 

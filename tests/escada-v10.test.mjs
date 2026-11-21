@@ -7,6 +7,8 @@ import {
   createNote,
   computeReportingCycle,
   deleteWin,
+  captureWinDeletion,
+  restoreDeletedWin,
   deriveNoteTitle,
   buildCoachNotes,
   isIdeaReadyForWin,
@@ -553,12 +555,30 @@ test('PWA shell exposes collapsible sidebar, install prompt and offline state', 
 
 // v30 card readability and active-archive UI cleanup
 
-test('Today and Ideas cards keep responsive widths and title weights', () => {
+test('Today uses a responsive three-column grid and Ideas keeps four scrollable columns', () => {
   const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8')
-  assert.match(css, /repeat\(auto-fit, minmax\(min\(100%, 260px\), 1fr\)\)/)
-  assert.match(css, /\.escada-note-card h4[\s\S]*?font-weight:\s*500/)
-  assert.match(css, /\.escada-kanban-card h4[\s\S]*?font-weight:\s*500/)
-  assert.match(css, /@media \(max-width: 560px\)[\s\S]*?\.escada-pin-board \{ grid-template-columns: 1fr; \}/)
+  assert.match(css, /\.escada-pin-board \{[^}]*repeat\(3, minmax\(0, 1fr\)\)/)
+  assert.match(css, /\.escada-note-title \{[^}]*font-weight: 500/)
+  assert.match(css, /\.escada-kanban-board \{[^}]*repeat\(4, minmax\(180px, 1fr\)\)[^}]*scroll-snap-type: x proximity/)
+  assert.match(css, /@media \(max-width: 440px\)[\s\S]*?\.escada-pin-board \{ grid-template-columns: 1fr; \}/)
+})
+
+test('undo restores a win and its report references while preserving unrelated updates', () => {
+  const state = {
+    wins: [{ id: 'one', sourceIdeaId: 'idea' }, { id: 'two' }],
+    ideas: [{ id: 'idea', status: 'won', updatedAt: 'old', title: 'Original' }],
+    reports: [{ id: 'report', winIds: ['two', 'one'], title: 'Original' }],
+  }
+  const deletion = captureWinDeletion(state, 'one', 'deleted')
+  const removed = deleteWin(state, 'one', deletion.deletedAt)
+  const interim = { ...removed, reports: [{ ...removed.reports[0], title: 'Edited' }] }
+  const restored = restoreDeletedWin(interim, deletion)
+  assert.deepEqual(restored.wins, state.wins)
+  assert.deepEqual(restored.ideas, state.ideas)
+  assert.deepEqual(restored.reports, [{ ...state.reports[0], title: 'Edited' }])
+  assert.equal(restoreDeletedWin(restored, deletion), restored)
+  assert.deepEqual(restoreDeletedWin({ ...interim, ideas: [{ ...interim.ideas[0], updatedAt: 'later' }] }, deletion).ideas,
+    [{ ...interim.ideas[0], updatedAt: 'later' }])
 })
 
 test('v30 removes active idea archive actions while keeping legacy archive recovery', () => {

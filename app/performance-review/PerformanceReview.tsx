@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { Listbox } from '../ui/Listbox'
 import { LIMITS, PEER_SECTIONS, REVIEW_VERSION, SELF_REVIEW_VERSION, validateReviewRequest, validateReviewResponse } from './review-contract.mjs'
 import type { CompetencyAssessment, ReviewMode, ReviewQuestion, ReviewRequest, ReviewTurn } from './review-contract.mjs'
 import { getReviewRubric, isReviewLevel, REVIEW_LEVEL_LABELS } from './review-rubric.mjs'
@@ -86,11 +87,11 @@ const ASSESSMENT_LABELS: Record<CompetencyAssessment['status'], string> = {
 
 function LevelSelect({ level, onChange }: { level: ReviewLevel; onChange: (level: ReviewLevel) => void }) {
   return (
-    <label>Ваш уровень
-      <select value={level} onChange={(event) => { if (isReviewLevel(event.target.value)) onChange(event.target.value) }}>
-        {Object.entries(REVIEW_LEVEL_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-      </select>
-    </label>
+    <div className="escada-field">Ваш уровень
+      <Listbox label="Ваш уровень" value={level}
+        options={(Object.keys(REVIEW_LEVEL_LABELS) as ReviewLevel[]).map((value) => ({ value, label: REVIEW_LEVEL_LABELS[value] }))}
+        onChange={onChange} />
+    </div>
   )
 }
 
@@ -312,7 +313,7 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
   const canDraft = hasEvidence && (allPointsAsked || session?.turns.length === LIMITS.turns)
 
   return (
-    <section className="escada-review" aria-label="Performance Review">
+    <section className="escada-review" aria-label="Ревью">
       <header className="escada-review-hero">
         <div>
           <h2>{session ? title(session) : 'Подготовка к ревью'}</h2>
@@ -343,7 +344,7 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
                   ? <label>Имя коллеги<input value={subject} maxLength={150} onChange={(event) => setSubject(event.target.value)} required /></label>
                   : <LevelSelect level={level} onChange={setLevel} />}
               </div>
-              <label>Пункты Performance Review
+              <label>Пункты ревью
                 <textarea rows={7} value={pointsText} maxLength={LIMITS.points * (LIMITS.point + 8)} onChange={(event) => setPointsText(event.target.value)} aria-describedby="review-points-help" required />
               </label>
               <small id="review-points-help">Вставьте пункты из вашей формы. Один пункт на строку.</small>

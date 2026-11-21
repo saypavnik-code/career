@@ -32,7 +32,26 @@ export function updateNote(state: Record<string, unknown>, noteId: string, rawTe
 export function noteToIdea(note: Record<string, unknown>, currentLevel?: string): { idea: Record<string, unknown>; note: Record<string, unknown> }
 export function migrateIdeaStatus(status: string | undefined, workItems?: Array<{ status: string }>): string
 export function winGapHints(win: Record<string, unknown>): string[]
-export function deleteWin(state: Record<string, unknown>, winId: string): Record<string, unknown>
+export function deleteWin<State extends object>(state: State, winId: string, deletedAt?: string): State
+
+type DeletionState<Win extends { id: string; sourceIdeaId: string | null }> = {
+  wins: Win[]
+  ideas: { id: string; status: string; updatedAt: string }[]
+  reports: { id: string; winIds: string[] }[]
+}
+type WinDeletion<Win> = {
+  win: Win
+  index: number
+  deletedAt: string
+  source: { id: string; updatedAt: string } | null
+  reports: { id: string; index: number }[]
+}
+export function captureWinDeletion<Win extends { id: string; sourceIdeaId: string | null }>(
+  state: DeletionState<Win>, id: string, deletedAt?: string,
+): WinDeletion<Win> | null
+export function restoreDeletedWin<State extends DeletionState<{ id: string; sourceIdeaId: string | null }>>(
+  state: State, deletion: WinDeletion<State['wins'][number]>,
+): State
 export function computeGrowthPath(state: Record<string, unknown>, competencies: unknown[], focusCompetencyIds?: string[]): Record<string, unknown>
 export function normalizeCustomCompetencyScale(scale: unknown): Record<string, unknown> | null
 export function normalizeFocusCompetencyIds(ids: unknown): string[]

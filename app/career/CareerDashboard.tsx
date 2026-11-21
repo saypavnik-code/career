@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent, ReactNode } from 'react'
+import type { ChangeEvent, ComponentProps, FormEvent, ReactNode } from 'react'
 import dynamic from 'next/dynamic'
+import { Icon } from '../ui/Icon'
+import { Listbox } from '../ui/Listbox'
 import {
   competencies,
   competencyKeywords,
@@ -30,6 +32,8 @@ import {
   createId,
   createNote,
   deleteWin as deleteWinFromState,
+  captureWinDeletion,
+  restoreDeletedWin,
   isEscadaState,
   isIdeaReadyForWin,
   updateNote as updateNoteFromState,
@@ -49,16 +53,17 @@ import {
 } from './career-core.mjs'
 
 const PerformanceReview = dynamic(() => import('../performance-review/PerformanceReview'), {
-  loading: () => <p role="status">Открываем Performance Review…</p>,
+  loading: () => <p role="status">Открываем ревью…</p>,
 })
 
 const ESCADA_AI_ENDPOINT = process.env.NEXT_PUBLIC_ESCADA_AI_ENDPOINT?.trim() ?? ''
 const ESCADA_BASE_PATH = process.env.NEXT_PUBLIC_ESCADA_BASE_PATH?.trim() ?? ''
+const CAPTURE_STORAGE_KEY = 'escada:ui:capture-draft'
 const SIDEBAR_STORAGE_KEY = 'escada:ui:sidebar-collapsed'
 
 type View = 'today' | 'ideas' | 'wins' | 'reports' | 'growth' | 'review'
 type IdeaStatus = 'concept' | 'preparation' | 'in_progress' | 'outcomes' | 'won' | 'archived'
-type ActiveIdeaStatus = 'concept' | 'preparation' | 'in_progress' | 'outcomes'
+type ActiveIdeaStatus = Exclude<IdeaStatus, 'won' | 'archived'>
 type WorkStatus = 'backlog' | 'doing' | 'done'
 type ReportType = 'weekly' | 'monthly' | 'one-to-one' | 'performance' | 'promotion'
 type GrowthTab = 'path' | 'scale'
@@ -201,32 +206,37 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
 }
 
-const navItems: Array<{ id: View; label: string; caption: string; icon: string; mobileLabel?: string }> = [
-  { id: 'today', label: 'Сегодня', caption: 'Быстрая мысль', icon: '◉' },
-  { id: 'ideas', label: 'Идеи', caption: 'Развить мысль', icon: '✦' },
-  { id: 'wins', label: 'Wins', caption: 'Подтвердить результат', icon: '◆' },
-  { id: 'reports', label: 'Отчёты', caption: 'Оформить историю', icon: '▤' },
-  { id: 'review', label: 'Performance Review', mobileLabel: 'Ревью', caption: 'Интервью и черновики', icon: '✎' },
-  { id: 'growth', label: 'Рост', caption: 'Понять следующий шаг', icon: '⌁' },
+const navItems: { id: View; label: string; icon: ComponentProps<typeof Icon>['name'] }[] = [
+  { id: 'today', label: 'Сегодня', icon: 'today' },
+  { id: 'ideas', label: 'Идеи', icon: 'ideas' },
+  { id: 'wins', label: 'Wins', icon: 'wins' },
+  { id: 'reports', label: 'Отчёты', icon: 'reports' },
+  { id: 'review', label: 'Ревью', icon: 'review' },
+  { id: 'growth', label: 'Рост', icon: 'growth' },
 ]
+
+function labelOptions<Value extends string>(labels: Record<Value, string>) {
+  return (Object.keys(labels) as Value[]).map((value) => ({ value, label: labels[value] }))
+}
 
 const statusLabels: Record<IdeaStatus, string> = {
   concept: 'Задумка',
   preparation: 'Подготовка',
   in_progress: 'В работе',
   outcomes: 'Итоги',
-  won: 'Стала win',
+  won: 'Оформлена как win',
   archived: 'Архив',
 }
 
 const KANBAN_COLUMNS: ActiveIdeaStatus[] = ['concept', 'preparation', 'in_progress', 'outcomes']
+const IDEA_STATUS_OPTIONS = KANBAN_COLUMNS.map((value) => ({ value, label: statusLabels[value] }))
 
 const reportTypeLabels: Record<ReportType, string> = {
   weekly: 'Недельный отчёт',
   monthly: 'Ежемесячный отчёт',
   'one-to-one': 'Отчёт для 1:1',
-  performance: 'Performance review',
-  promotion: 'Promotion case',
+  performance: 'Performance Review',
+  promotion: 'Обоснование повышения',
 }
 
 const visibleReportTypes: ReportType[] = ['weekly', 'monthly', 'performance', 'promotion']
@@ -291,8 +301,9 @@ function nonEmptyFields<T extends Record<string, unknown>>(source: T | null | un
 }
 
 function formatDate(value: string) {
-  if (!value) return 'Без даты'
-  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
+  const date = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return 'Без даты'
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
 }
 
 function dateDaysAgo(days: number) {
@@ -339,14 +350,6 @@ function LadderLogo() {
   return <svg className="escada-logo-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M8 36h9V27h9V18h14" fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }
 
-function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
-  return <svg className="escada-sidebar-toggle-svg" viewBox="0 0 20 20" aria-hidden="true">
-    <rect x="2.5" y="3" width="15" height="14" rx="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    <path d="M7 3.8v12.4" fill="none" stroke="currentColor" strokeWidth="1.35" />
-    <path d={collapsed ? 'm10 7 3 3-3 3' : 'm13 7-3 3 3 3'} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-}
-
 export default function CareerDashboard() {
   const [view, setView] = useState<View>('today')
   const [state, setState] = useState<CareerState>(() => asState(createDefaultState()))
@@ -362,6 +365,8 @@ export default function CareerDashboard() {
   const [isOffline, setIsOffline] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [notice, setNotice] = useState('')
+  const [captureUnsaved, setCaptureUnsaved] = useState(false)
+  const [deletedWins, setDeletedWins] = useState<{ deletion: NonNullable<ReturnType<typeof captureWinDeletion<Win>>>; selected: boolean }[]>([])
   // v34: distinct from `notice` (which auto-dismisses in ~2.8s) —
   // recovery situations need a banner the user actively closes.
   const [recoveryBanner, setRecoveryBanner] = useState('')
@@ -426,6 +431,7 @@ export default function CareerDashboard() {
     const navigatorWithStandalone = window.navigator as Navigator & { standalone?: boolean }
     const standalone = window.matchMedia('(display-mode: standalone)').matches || Boolean(navigatorWithStandalone.standalone)
     const savedSidebar = window.localStorage.getItem(SIDEBAR_STORAGE_KEY)
+    setQuickText(window.localStorage.getItem(CAPTURE_STORAGE_KEY) ?? '')
     const requestedView = new URL(window.location.href).searchParams.get('view') as View | null
     setState(loaded)
     setPeriodStart(cycle.periodStart)
@@ -538,7 +544,7 @@ export default function CareerDashboard() {
   // wiping something mid-thought. See Fable roadmap Patch F (P1-6).
   const hasUnsavedWork = Boolean(
     ideaDraft || winDraft || reportDraftOpen || openNote || newIdeaFromNote ||
-    profileOpen || quickText.trim() || !state.onboardingComplete
+    profileOpen || captureUnsaved || !state.onboardingComplete
   )
 
   // v41: previously this auto-reloaded the instant no listed editor was
@@ -561,7 +567,7 @@ export default function CareerDashboard() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      const isEditing = target?.matches('input, textarea, select, [contenteditable="true"]')
+      const isEditing = target?.matches('input, textarea, [role="combobox"], [contenteditable="true"]')
       if (!isEditing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b' && window.innerWidth > 780) {
         event.preventDefault()
         setSidebarCollapsed((current) => !current)
@@ -683,12 +689,36 @@ export default function CareerDashboard() {
     }
   }
 
+  useEffect(() => {
+    if (!deletedWins.length) return
+    const timer = window.setTimeout(() => setDeletedWins([]), 5000)
+    return () => window.clearTimeout(timer)
+  }, [deletedWins])
+
+  function updateCapture(text: string) {
+    setQuickText(text)
+    try {
+      if (text) window.localStorage.setItem(CAPTURE_STORAGE_KEY, text)
+      else window.localStorage.removeItem(CAPTURE_STORAGE_KEY)
+      setCaptureUnsaved(false)
+    } catch {
+      setCaptureUnsaved(Boolean(text))
+    }
+  }
+
   function submitNote(event: FormEvent) {
     event.preventDefault()
     const note = createNote(quickText) as unknown as Note | null
     if (!note) return
-    updateState((current) => ({ ...current, notes: [note, ...current.notes] }))
-    setQuickText('')
+    const next = { ...state, notes: [note, ...state.notes] }
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      setNotice('Не удалось сохранить мысль. Черновик оставлен в поле.')
+      return
+    }
+    setState(next)
+    updateCapture('')
     setNotice('Мысль сохранена')
   }
 
@@ -807,13 +837,28 @@ export default function CareerDashboard() {
         : current.ideas,
     }))
     setWinDraft(null)
-    setNotice('Win сохранена')
+    setNotice('Win сохранён')
   }
 
   function removeWin(winId: string) {
-    updateState((current) => asState(deleteWinFromState(current as unknown as Record<string, unknown>, winId)))
+    const deletion = captureWinDeletion(state, winId)
+    if (!deletion) return
+    setDeletedWins((current) => [...current, { deletion, selected: selectedWinIds.includes(winId) }])
+    updateState((current) => deleteWinFromState(current, winId, deletion.deletedAt))
+    setSelectedWinIds((current) => current.filter((id) => id !== winId))
     setWinDraft(null)
-    setNotice('Win удалена')
+    setNotice('')
+  }
+
+  function undoWinDeletion() {
+    updateState((current) => [...deletedWins].reverse().reduce(
+      (restored, { deletion }) => restoreDeletedWin(restored, deletion), current,
+    ))
+    setSelectedWinIds((current) => [...new Set([
+      ...current, ...deletedWins.filter((entry) => entry.selected).map(({ deletion }) => deletion.win.id),
+    ])])
+    setDeletedWins([])
+    setNotice('Удаление отменено')
   }
 
   function saveReport() {
@@ -986,6 +1031,7 @@ export default function CareerDashboard() {
         setWinDraft(null)
         setOpenNote(null)
         setNewIdeaFromNote(null)
+        setDeletedWins([])
         setNotice('Данные импортированы')
       } catch { setNotice('Не удалось прочитать файл') }
     }
@@ -998,35 +1044,46 @@ export default function CareerDashboard() {
   return (
     <main className={['escada-shell', sidebarCollapsed ? 'escada-shell-sidebar-collapsed' : '', isStandalone ? 'escada-pwa-standalone' : ''].filter(Boolean).join(' ')}>
       <aside className="escada-sidebar">
-        <div className="escada-brand"><span className="escada-brand-mark"><LadderLogo /></span><div><strong>Эскада</strong><small>профессиональная память</small></div></div>
+        <div className="escada-brand"><span className="escada-brand-mark"><LadderLogo /></span><strong>Эскада</strong></div>
         <nav className="escada-nav" aria-label="Основная навигация">
-          {navItems.map((item) => <button key={item.id} type="button" className={view === item.id ? 'escada-nav-active' : 'escada-nav-item'} aria-current={view === item.id ? 'page' : undefined} aria-label={item.label} title={sidebarCollapsed ? item.label : undefined} onClick={() => setView(item.id)}><span className="escada-nav-icon" aria-hidden="true">{item.icon}</span><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}
+          {navItems.map((item) => (
+            <button key={item.id} type="button" className={view === item.id ? 'escada-nav-active' : 'escada-nav-item'}
+              aria-current={view === item.id ? 'page' : undefined} aria-label={item.label}
+              title={sidebarCollapsed ? item.label : undefined} onClick={() => setView(item.id)}>
+              <span className="escada-nav-icon"><Icon name={item.icon} /></span><span>{item.label}</span>
+            </button>
+          ))}
         </nav>
+        <button type="button" className="escada-sidebar-profile" aria-label="Профиль" title={sidebarCollapsed ? (state.profile.name || 'Профиль') : undefined}
+          onClick={() => setProfileOpen(true)}>
+          <span className="escada-profile-initial">{state.profile.name.slice(0, 1) || 'Э'}</span>
+          <span className="escada-sidebar-profile-name"><strong>{state.profile.name || 'Мой профиль'}</strong><small>{levelLabels[state.profile.currentLevel]}</small></span>
+        </button>
       </aside>
 
       <section className="escada-workspace">
         <header className="escada-topbar">
           <div className="escada-topbar-leading">
-            <button type="button" className="escada-sidebar-toggle-button" aria-label={sidebarCollapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'} title={`${sidebarCollapsed ? 'Развернуть' : 'Свернуть'} боковую панель · Ctrl/⌘ B`} onClick={() => setSidebarCollapsed((current) => !current)}><SidebarToggleIcon collapsed={sidebarCollapsed} /></button>
+            <button type="button" className="escada-sidebar-toggle-button" aria-label={sidebarCollapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'} title={`${sidebarCollapsed ? 'Развернуть' : 'Свернуть'} боковую панель · Ctrl/⌘ B`} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((current) => !current)}><Icon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button>
             <div><h1>{navItems.find((item) => item.id === view)?.label}</h1></div>
           </div>
           <div className="escada-topbar-actions">
             {isOffline && <span className="escada-offline-badge" role="status"><span aria-hidden="true" />Офлайн</span>}
             {!isStandalone && installPrompt && <button type="button" className="escada-pwa-install-button" onClick={installPwa} title="Установить Эскаду как приложение"><span aria-hidden="true">↓</span><strong>Установить</strong></button>}
-            <button type="button" className="escada-profile-chip" aria-label="Профиль" onClick={() => setProfileOpen(true)}><span>{state.profile.name.slice(0, 1) || 'Э'}</span><div><strong>{state.profile.name || 'Мой профиль'}</strong><small>{levelLabels[state.profile.currentLevel]}</small></div></button>
+            <button type="button" className="escada-mobile-profile" aria-label="Профиль" onClick={() => setProfileOpen(true)}><span className="escada-profile-initial">{state.profile.name.slice(0, 1) || 'Э'}</span></button>
           </div>
         </header>
 
-        {view === 'today' && <TodayView quickText={quickText} onQuickText={setQuickText} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
-        {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={() => setIdeaDraft(newIdea(state.profile.currentLevel, '', state.focusCompetencyIds))} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
-        {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin(state.focusCompetencyIds))} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onReports={() => setView('reports')} />}
+        {view === 'today' && <TodayView quickText={quickText} onQuickText={updateCapture} captureUnsaved={captureUnsaved} onSubmit={submitNote} notes={state.notes} onOpenNote={setOpenNote} />}
+        {view === 'ideas' && <IdeasView ideas={state.ideas} wins={state.wins} onNew={(status = 'concept') => setIdeaDraft({ ...newIdea(state.profile.currentLevel, '', state.focusCompetencyIds), status })} onOpen={(idea) => setIdeaDraft(idea)} onStatusChange={changeIdeaStatus} onRestore={restoreIdea} onQuickWin={(idea) => { if (window.confirm('Превратить идею в win?')) startWinFromIdea(idea) }} />}
+        {view === 'wins' && <WinsView wins={state.wins} ideas={state.ideas} onNew={() => setWinDraft(emptyWin(state.focusCompetencyIds))} onOpen={(win) => setWinDraft({ ...win })} onDelete={removeWin} onIdea={(idea) => { setView('ideas'); setIdeaDraft(idea) }} onReports={() => setView('reports')} />}
         {view === 'reports' && <ReportsView wins={winsInPeriod} ideas={activeIdeas} selectedWinIds={selectedWinIds} selectedIdeaIds={selectedIdeaIds} periodStart={periodStart} periodEnd={periodEnd} reportType={reportType} reportText={reportText} reports={state.reports} busy={aiBusy} error={aiError} onPeriodStart={setPeriodStart} onPeriodEnd={setPeriodEnd} onReportType={setReportType} onToggleWin={(id) => setSelectedWinIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onToggleIdea={(id) => setSelectedIdeaIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onSelectAll={() => setSelectedWinIds(winsInPeriod.map((item) => item.id))} onGenerate={generateReport} onOpenReport={openSavedReport} />}
         {view === 'reports' && reportDraftOpen && <ReportDraftModal reportType={reportType} reportText={reportText} guidance={reportGuidance} busy={aiBusy} profile={state.profile} periodStart={periodStart} periodEnd={periodEnd} isUpdate={Boolean(currentReportId)} isDirty={reportText.trim() !== reportBaseline.trim()} onReview={reviewReport} onReportText={setReportText} onSave={saveReport} onClose={() => { setReportDraftOpen(false); setReportText(''); setReportBaseline(''); setReportGuidance(null); setCurrentReportId(null) }} onNotice={setNotice} />}
         {view === 'review' && <PerformanceReview profileLevel={state.profile.currentLevel} />}
         {view === 'growth' && <GrowthView profile={state.profile} path={growthPath} activeCompetencies={activeCompetencies} customScale={state.customCompetencyScale} focusCompetencyIds={state.focusCompetencyIds} onSetFocus={handleSetFocus} tab={growthTab} onTab={setGrowthTab} guidance={growthGuidance} busy={aiBusy} error={aiError} onAi={async () => setGrowthGuidance(await requestAi('growth_guidance', { ideas: activeIdeas, wins: state.wins, growthPath }))} onCreateIdea={(competency) => { const idea = newIdea(state.profile.currentLevel, `Развить: ${competency.shortTitle}`); idea.competencyIds = [competency.id]; setIdeaDraft(idea) }} onUploadScale={handleCustomScaleUpload} onApplyScale={handleApplyCustomScale} onDiscardScale={handleDiscardCustomScale} />}
       </section>
 
-      <nav className="escada-mobile-nav" aria-label="Мобильная навигация">{navItems.map((item) => <button key={item.id} type="button" className={view === item.id ? 'escada-mobile-active' : ''} aria-current={view === item.id ? 'page' : undefined} aria-label={item.label} onClick={() => setView(item.id)}><span aria-hidden="true">{item.icon}</span><small>{item.mobileLabel ?? item.label}</small></button>)}</nav>
+      <nav className="escada-mobile-nav" aria-label="Мобильная навигация">{navItems.map((item) => <button key={item.id} type="button" className={view === item.id ? 'escada-mobile-active' : ''} aria-current={view === item.id ? 'page' : undefined} aria-label={item.label} onClick={() => setView(item.id)}><Icon name={item.icon} /><small>{item.label}</small></button>)}</nav>
 
       {!state.onboardingComplete && <Onboarding initial={state.profile} onComplete={(profile) => updateState((current) => ({ ...current, onboardingComplete: true, profile }))} onDemo={() => setState(asState(demoState()))} />}
       {profileOpen && <ProfileModal profile={state.profile} onClose={() => setProfileOpen(false)} onSave={(profile) => { updateState((current) => ({ ...current, profile })); setProfileOpen(false); setNotice('Профиль обновлён') }} onExport={exportData} onImport={() => importRef.current?.click()} />}
@@ -1053,43 +1110,74 @@ export default function CareerDashboard() {
           </div>
         </div>
       )}
-      {notice && <div className="escada-toast" role="status">{notice}</div>}
+      {deletedWins.length > 0 ? (
+        <div className="escada-toast"><span role="status">{deletedWins.length === 1 ? 'Win удалён' : 'Wins удалены'}</span>
+          <button type="button" onClick={undoWinDeletion}>Отменить</button>
+        </div>
+      ) : notice && <div className="escada-toast" role="status">{notice}</div>}
     </main>
   )
 }
 
+const compactDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' })
+const monthLabel = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' })
+const relativeDate = new Intl.RelativeTimeFormat('ru-RU', { style: 'short', numeric: 'auto' })
+const countPlural = new Intl.PluralRules('ru-RU')
+const dayMilliseconds = 24 * 60 * 60 * 1000
+
 function noteRelativeDate(value: string) {
-  const created = new Date(value).getTime()
-  const diffDays = Math.floor((Date.now() - created) / (24 * 60 * 60 * 1000))
-  if (diffDays <= 0) return 'Сегодня'
-  if (diffDays === 1) return 'Вчера'
-  if (diffDays < 7) return `${diffDays} дн. назад`
-  return formatDate(value.slice(0, 10))
+  const created = new Date(value)
+  if (Number.isNaN(created.getTime())) return 'Без даты'
+  const now = new Date()
+  const day = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+  const days = Math.max(0, (day(now) - day(created)) / dayMilliseconds)
+  if (days < 30) return relativeDate.format(-days, 'day')
+  if (days < 365) return relativeDate.format(-Math.floor(days / 30), 'month')
+  return relativeDate.format(-Math.floor(days / 365), 'year')
 }
 
-function TodayView({ quickText, onQuickText, onSubmit, notes, onOpenNote }: {
+function TodayView({ quickText, onQuickText, onSubmit, captureUnsaved, notes, onOpenNote }: {
   quickText: string
   onQuickText: (value: string) => void
   onSubmit: (event: FormEvent) => void
+  captureUnsaved: boolean
   notes: Note[]
   onOpenNote: (note: Note) => void
 }) {
-  return <div className="escada-page-stack">
-    <section className="escada-hero-card escada-calm-hero">
-      <div className="escada-hero-copy"><span className="escada-pill">Быстрая мысль</span><h2>Есть новая мысль?</h2></div>
-      <form className="escada-quick-capture escada-quick-thought" onSubmit={onSubmit}><textarea value={quickText} onChange={(event) => onQuickText(event.target.value)} aria-label="Быстрая мысль" /><button type="submit" className="escada-primary-button">Записать</button></form>
+  return <div className="escada-page-stack escada-today">
+    <section aria-labelledby="capture-title" className="escada-composer-section">
+      <p className="escada-capture-label">Быстрая мысль</p>
+      <h2 id="capture-title">Есть новая мысль?</h2>
+      <form className="escada-composer" onSubmit={onSubmit}>
+        <textarea value={quickText} autoComplete="off" rows={4} placeholder="Что хочется запомнить?"
+          onChange={(event) => onQuickText(event.target.value)} aria-label="Быстрая мысль"
+          aria-keyshortcuts="Control+Enter Meta+Enter"
+          onKeyDown={(event) => {
+            if (!event.nativeEvent.isComposing && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }
+          }} />
+        <div className="escada-composer-actions">
+          <span>{captureUnsaved ? 'Черновик пока в этой вкладке' : <kbd>Ctrl/⌘ + ↵</kbd>}</span>
+          <button type="submit" className="escada-primary-button" disabled={!quickText.trim()}>Записать</button>
+        </div>
+      </form>
     </section>
 
-    {notes.length > 0 && (
-      <section className="escada-pin-board">
+    {notes.length > 0 && <section aria-labelledby="recent-thoughts">
+      <h2 className="escada-section-title" id="recent-thoughts">Последние мысли</h2>
+      <div className="escada-pin-board">
         {notes.map((note) => (
-          <article className="escada-note-card" key={note.id} onClick={() => onOpenNote(note)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenNote(note) } }}>
-            <h4>{note.title}</h4>
-            <span className="escada-note-card-date">{noteRelativeDate(note.createdAt)}</span>
-          </article>
+          <button type="button" className="escada-note-card" key={note.id} onClick={() => onOpenNote(note)}>
+            <span className="escada-note-title">{note.title}</span>
+            <time className="escada-note-card-date" dateTime={note.createdAt} title={formatDate(note.createdAt.slice(0, 10))}>
+              {noteRelativeDate(note.createdAt)}
+            </time>
+          </button>
         ))}
-      </section>
-    )}
+      </div>
+    </section>}
   </div>
 }
 
@@ -1115,10 +1203,10 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
   function convert() {
     onConvert(note.id, dirty ? text : undefined)
   }
-  return <Modal title={note.title} subtitle="" onClose={onClose} isDirty={dirty}>
+  return <Modal title={note.title} subtitle="" onClose={onClose} isDirty={dirty} drawer>
     <div className="escada-note-editor-wrap">
       <span className="escada-note-editor-date">{formatDate(note.createdAt.slice(0, 10))}</span>
-      <textarea className="escada-note-editor" value={text} onChange={(event) => setText(event.target.value)} aria-label="Текст мысли" autoFocus />
+      <textarea className="escada-note-editor" value={text} onChange={(event) => setText(event.target.value)} aria-label="Текст мысли" data-initial-focus />
       <div className="escada-note-editor-save-row">
         <button className="escada-secondary-button" type="button" disabled={!dirty || !text.trim()} onClick={save}>Сохранить</button>
       </div>
@@ -1139,7 +1227,7 @@ function NoteOverlay({ note, busy, error, onClose, onConvert, onEdit, onAi }: {
 function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onRestore, onQuickWin }: {
   ideas: Idea[]
   wins: Win[]
-  onNew: () => void
+  onNew: (status?: ActiveIdeaStatus) => void
   onOpen: (idea: Idea) => void
   onStatusChange: (ideaId: string, status: ActiveIdeaStatus) => void
   onRestore: (ideaId: string) => void
@@ -1149,61 +1237,60 @@ function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onRestore, onQu
   const kanbanIdeas = ideas.filter((idea) => idea.status !== 'won' && idea.status !== 'archived')
   const archivedIdeas = ideas.filter((idea) => idea.status === 'archived')
 
-  function handleDrop(event: React.DragEvent, status: ActiveIdeaStatus) {
-    event.preventDefault()
-    const ideaId = event.dataTransfer.getData('text/escada-idea-id') || dragIdeaId
-    if (ideaId) onStatusChange(ideaId, status)
-    setDragIdeaId(null)
+  function moveFromMenu(ideaId: string, status: ActiveIdeaStatus) {
+    onStatusChange(ideaId, status)
+    window.requestAnimationFrame(() => document.getElementById(`escada-idea-${ideaId}`)?.querySelector('button')?.focus())
   }
 
   return <div className="escada-page-stack">
-    <section className="escada-page-intro"><div /><button className="escada-primary-button" type="button" onClick={onNew}>Новая идея</button></section>
-    {kanbanIdeas.length ? (
-      <section className="escada-kanban-board">
-        {KANBAN_COLUMNS.map((status) => {
-          const columnIdeas = kanbanIdeas.filter((idea) => idea.status === status)
-          return <div key={status} className="escada-kanban-column-wrap" onDragOver={(event) => event.preventDefault()} onDrop={(event) => handleDrop(event, status)}>
-            <div className="escada-kanban-column-header"><h3>{statusLabels[status]}</h3><span>{columnIdeas.length}</span></div>
-            <div className="escada-kanban-column-body">
-              {columnIdeas.map((idea) => (
-                <article
-                  key={idea.id}
-                  className="escada-kanban-card"
-                  draggable
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onOpen(idea)}
-                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(idea) } }}
-                  onDragStart={(event) => { event.dataTransfer.setData('text/escada-idea-id', idea.id); setDragIdeaId(idea.id) }}
-                  onDragEnd={() => setDragIdeaId(null)}
-                >
-                  <h4>{idea.title}</h4>
-                  {isIdeaReadyForWin(idea as unknown as Record<string, unknown>, wins as unknown as Record<string, unknown>[]) && (
-                    <div className="escada-ready-for-win-row">
-                      <span className="escada-ready-for-win-badge">Готова стать win</span>
-                      <button type="button" className="escada-text-button" onClick={(event) => { event.stopPropagation(); onQuickWin(idea) }}>Win!</button>
-                    </div>
-                  )}
-                  <div className="escada-card-actions">
-                    <select
-                      className="escada-kanban-card-status-select"
-                      value={idea.status}
-                      onChange={(event) => onStatusChange(idea.id, event.target.value as ActiveIdeaStatus)}
-                      onClick={(event) => event.stopPropagation()}
-                      aria-label="Статус идеи"
-                    >
-                      {KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
-                    </select>
-                  </div>
-                </article>
-              ))}
-            </div>
+    <div className="escada-view-actions"><button className="escada-primary-button" type="button" onClick={() => onNew()}><Icon name="plus" />Новая идея</button></div>
+    <section className="escada-kanban-board" aria-label="Доска идей" tabIndex={0} data-dragging={Boolean(dragIdeaId)}>
+      {KANBAN_COLUMNS.map((status) => {
+        const columnIdeas = kanbanIdeas.filter((idea) => idea.status === status)
+        return <section key={status} className="escada-kanban-column-wrap" aria-labelledby={`idea-stage-${status}`}
+          onDragOver={(event) => {
+            if (!dragIdeaId) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'move'
+          }}
+          onDrop={(event) => {
+            event.preventDefault()
+            if (dragIdeaId) onStatusChange(dragIdeaId, status)
+            setDragIdeaId(null)
+          }}>
+          <div className="escada-kanban-column-header">
+            <h3 id={`idea-stage-${status}`}>{statusLabels[status]}</h3><span>{columnIdeas.length}</span>
           </div>
-        })}
-      </section>
-    ) : (
-      <EmptyState title={archivedIdeas.length ? 'Активных идей пока нет' : 'Идей пока нет'} text="Запишите мысль на экране «Сегодня» или создайте карточку сразу." action="Создать идею" onAction={onNew} />
-    )}
+          <div className="escada-kanban-column-body">
+            {columnIdeas.map((idea) => (
+              <article key={idea.id} id={`escada-idea-${idea.id}`} className="escada-kanban-card" draggable
+                data-dragging={dragIdeaId === idea.id}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData('text/plain', idea.id)
+                  event.dataTransfer.effectAllowed = 'move'
+                  setDragIdeaId(idea.id)
+                }}
+                onDragEnd={() => setDragIdeaId(null)}>
+                <button type="button" className="escada-card-open" onClick={() => onOpen(idea)}>{idea.title}</button>
+                {isIdeaReadyForWin(idea as unknown as Record<string, unknown>, wins as unknown as Record<string, unknown>[]) && (
+                  <div className="escada-ready-for-win-row">
+                    <span className="escada-ready-for-win-badge">Готова стать win</span>
+                    <button type="button" className="escada-text-button" onClick={() => onQuickWin(idea)}>Оформить win</button>
+                  </div>
+                )}
+                <Listbox label="Статус идеи" value={idea.status as ActiveIdeaStatus} options={IDEA_STATUS_OPTIONS}
+                  onChange={(value) => moveFromMenu(idea.id, value)} />
+              </article>
+            ))}
+            {!columnIdeas.length && <div className="escada-kanban-empty">
+              <p>Перетащите идею или создайте новую</p>
+              <button type="button" className="escada-ghost-button" title="Создать идею"
+                aria-label={`Создать идею · ${statusLabels[status]}`} onClick={() => onNew(status)}><Icon name="plus" /></button>
+            </div>}
+          </div>
+        </section>
+      })}
+    </section>
     {archivedIdeas.length > 0 && <details className="escada-archive-section">
       <summary><span>Архив</span><strong>{archivedIdeas.length}</strong></summary>
       <div className="escada-archive-grid">{archivedIdeas.map((idea) => <article className="escada-archive-card" key={idea.id}>
@@ -1214,28 +1301,55 @@ function IdeasView({ ideas, wins, onNew, onOpen, onStatusChange, onRestore, onQu
   </div>
 }
 
-function WinsView({ wins, ideas, onNew, onOpen, onDelete, onReports }: { wins: Win[]; ideas: Idea[]; onNew: () => void; onOpen: (win: Win) => void; onDelete: (winId: string) => void; onReports: () => void }) {
+function WinsView({ wins, ideas, onNew, onOpen, onDelete, onIdea, onReports }: {
+  wins: Win[]; ideas: Idea[]; onNew: () => void; onOpen: (win: Win) => void
+  onDelete: (winId: string) => void; onIdea: (idea: Idea) => void; onReports: () => void
+}) {
+  const months = new Map<string, Win[]>()
+  const ideasById = new Map(ideas.map((idea) => [idea.id, idea]))
+  for (const win of [...wins].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))) {
+    const date = new Date(`${win.date}T00:00:00`)
+    const key = Number.isNaN(date.getTime()) ? '' : win.date.slice(0, 7)
+    const group = months.get(key) ?? []
+    group.push(win)
+    months.set(key, group)
+  }
   return <div className="escada-page-stack">
-    <section className="escada-page-intro">
-      <div><span className="escada-eyebrow">Доказательства роста</span><p>Что произошло, почему это важно и чем подтверждается.</p></div>
-      <div className="escada-button-row"><button className="escada-secondary-button" type="button" onClick={onReports}>Собрать отчёт</button><button className="escada-primary-button" type="button" onClick={onNew}>Добавить win</button></div>
-    </section>
-    <section className="escada-win-list">
-      {wins.length ? wins.map((win) => {
-        const gaps = winGapHints(win as unknown as Record<string, unknown>)
-        const sourceIdea = win.sourceIdeaId ? ideas.find((idea) => idea.id === win.sourceIdeaId) : null
-        return <article className="escada-win-card escada-minimal-win-card" key={win.id}>
-          <div className="escada-win-date">{formatDate(win.date)}</div>
-          <div className="escada-win-body">
-            <h3>{win.title}</h3>
-            {sourceIdea && <span className="escada-source-idea-pill">Из идеи · {sourceIdea.title}</span>}
-            <p>{win.impact || 'Значимость результата пока не описана'}</p>
-            <div className="escada-evidence-stats"><span className={gaps.length ? 'escada-warning-dot' : 'escada-success-dot'}>{gaps.length ? `${gaps.length} пункта стоит усилить` : 'Доказательство заполнено'}</span></div>
-          </div>
-          <div className="escada-card-actions"><button type="button" className="escada-secondary-button" onClick={() => onOpen(win)}>Открыть</button><button type="button" className="escada-text-button escada-danger-text" onClick={() => { if (window.confirm(`Удалить win «${win.title}»? Это действие необратимо.`)) onDelete(win.id) }}>Удалить</button></div>
-        </article>
-      }) : <EmptyState title="Wins пока нет" text="Зафиксируйте изменение, результат и доказательство." action="Добавить win" onAction={onNew} />}
-    </section>
+    <div className="escada-view-actions">
+      <button className="escada-secondary-button" type="button" onClick={onReports}>Собрать отчёт</button>
+      <button className="escada-primary-button" type="button" onClick={onNew}><Icon name="plus" />Добавить win</button>
+    </div>
+    {wins.length ? <div className="escada-wins-timeline">
+      {[...months].map(([month, entries]) => <section key={month} className="escada-win-month">
+        <h2>{month ? monthLabel.format(new Date(`${month}-01T00:00:00`)) : 'Без даты'}</h2>
+        {entries.map((win) => {
+          const gaps = winGapHints(win as unknown as Record<string, unknown>)
+          const source = win.sourceIdeaId ? ideasById.get(win.sourceIdeaId) : undefined
+          const count = countPlural.select(gaps.length)
+          const date = new Date(`${win.date}T00:00:00`)
+          return <article className="escada-win-entry" key={win.id}>
+            <time className="escada-win-time" dateTime={month ? win.date : undefined}>
+              {month ? compactDate.format(date).replace(/\.$/, '') : '—'}
+            </time>
+            <div className="escada-win-surface">
+              <h3><button type="button" className="escada-card-open" onClick={() => onOpen(win)}>{win.title}</button></h3>
+              <p>{win.impact || 'Значимость результата пока не описана'}</p>
+              <button type="button" className="escada-win-delete" title="Удалить win" aria-label={`Удалить win «${win.title}»`}
+                onClick={() => onDelete(win.id)}><Icon name="trash" /></button>
+              {(source || gaps.length > 0) && <div className="escada-win-chips">
+                {source && <button type="button" className="escada-win-source" onClick={() => onIdea(source)}>
+                  <span>Из идеи · {source.title}</span><Icon name="link" />
+                </button>}
+                {gaps.length > 0 && <details className="escada-win-checklist">
+                  <summary>{gaps.length} {count === 'one' ? 'пункт' : count === 'few' ? 'пункта' : 'пунктов'} стоит усилить</summary>
+                  <ul>{gaps.map((gap) => <li key={gap}>{gap}</li>)}</ul>
+                </details>}
+              </div>}
+            </div>
+          </article>
+        })}
+      </section>)}
+    </div> : <p className="escada-wins-empty">Здесь появятся ваши wins с доказательствами и результатами.</p>}
   </div>
 }
 
@@ -1281,10 +1395,9 @@ function ReportsView({ wins, ideas, selectedWinIds, selectedIdeaIds, periodStart
     {reports.length > 0 && <section className="escada-panel escada-report-history-panel">
       <div className="escada-section-header">
         <div><span className="escada-eyebrow">История</span><h3>Сохранённые отчёты</h3></div>
-        <select className="escada-history-filter-select" value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value as ReportType | 'all')} aria-label="Фильтр по типу отчёта">
-          <option value="all">Все типы</option>
-          {visibleReportTypes.map((value) => <option key={value} value={value}>{reportTypeLabels[value]}</option>)}
-        </select>
+        <Listbox label="Фильтр по типу отчёта" value={historyFilter}
+          options={[{ value: 'all', label: 'Все типы' }, ...visibleReportTypes.map((value) => ({ value, label: reportTypeLabels[value] }))]}
+          onChange={setHistoryFilter} />
       </div>
       {visibleHistory.length
         ? <div className="escada-saved-reports">{visibleHistory.map((report) => <button type="button" className="escada-saved-report-card" key={report.id} onClick={() => onOpenReport(report)}><strong>{report.title}</strong><span>{formatDate((report.updatedAt ?? report.createdAt).slice(0, 10))}</span><small>Открыть версию</small></button>)}</div>
@@ -1517,7 +1630,7 @@ function NewIdeaModal({ idea, onClose, onSave, onPromote }: {
         <button className="escada-primary-button" type="submit">Сохранить идею</button>
       </div>
       <div className="escada-new-idea-win-row">
-        <button type="button" className="escada-primary-button" disabled={!draft.title.trim()} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Win!</button>
+        <button type="button" className="escada-primary-button" disabled={!draft.title.trim()} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Оформить win</button>
       </div>
     </form>
   </Modal>
@@ -1550,16 +1663,16 @@ function IdeaWorkspace({ draft: initial, profile, busy, error, onClose, onSave, 
   function addEvidence() { const value = evidenceText.trim(); if (!value) return; setDraft((current) => ({ ...current, evidenceNotes: [...current.evidenceNotes, { id: createId('evidence'), text: value, createdAt: new Date().toISOString() }] })); setEvidenceText('') }
   function toggleCompetency(id: string) { setDraft((current) => ({ ...current, competencyIds: current.competencyIds.includes(id) ? current.competencyIds.filter((item) => item !== id) : [...current.competencyIds, id] })) }
 
-  const statusControl = <select className="escada-artifact-status-select" value={draft.status} disabled={isTerminal} onChange={(event) => setDraft({ ...draft, status: event.target.value as ActiveIdeaStatus })} aria-label="Статус идеи">
-    {isTerminal && <option value={draft.status}>{statusLabels[draft.status]}</option>}
-    {!isTerminal && KANBAN_COLUMNS.map((option) => <option key={option} value={option}>{statusLabels[option]}</option>)}
-  </select>
+  const statusControl = isTerminal ? <span>{statusLabels[draft.status]}</span> : (
+    <Listbox label="Статус идеи" value={draft.status as ActiveIdeaStatus} options={IDEA_STATUS_OPTIONS}
+      onChange={(status) => setDraft({ ...draft, status })} />
+  )
 
   const actions = <>
     <button className="escada-artifact-tool-button" type="button" disabled={busy === 'idea_review'} onClick={() => void runAi()}>{busy === 'idea_review' ? 'Разбираем…' : '✦ Подсказка'}</button>
     <div className="escada-artifact-footer-right">
       {draft.status === 'archived' && <button className="escada-artifact-tool-button" type="button" onClick={() => { const saved = onSave(draft, false); onRestore(saved.id) }}>Вернуть</button>}
-      {!isTerminal && <button className="escada-artifact-tool-button" type="button" disabled={!draft.title.trim()} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Win!</button>}
+      {!isTerminal && <button className="escada-artifact-tool-button" type="button" disabled={!draft.title.trim()} onClick={() => { if (window.confirm('Превратить идею в win?')) onPromote(draft) }}>Оформить win</button>}
       <button className="escada-artifact-save-button" type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)}>Готово</button>
     </div>
   </>
@@ -1668,7 +1781,7 @@ function WinModal({ draft: initial, profile, busy, error, onClose, onSave, onDel
           {winTargetLevel && winNextExpectations.length > 0 && <details><summary>Как усилить до «{levelLabels[winTargetLevel]}»</summary><ul>{winNextExpectations.map((item) => <li key={item.id}>{item.text}</li>)}</ul></details>}
         </section>}
 
-        {draft.id && <button className="escada-artifact-delete-button" type="button" onClick={() => { if (window.confirm(`Удалить win «${draft.title || 'без названия'}»? Это действие необратимо.`)) onDelete(draft.id as string) }}>Удалить win</button>}
+        {draft.id && <button className="escada-artifact-delete-button" type="button" onClick={() => { if (draft.id) onDelete(draft.id) }}>Удалить win</button>}
       </div>
     </details>
   </ArtifactEditorShell>
@@ -1680,7 +1793,7 @@ function AiGuidancePanel({ guidance, compact = false, onSaveNextStep, onApplyRew
 
 function ProfileModal({ profile: initial, onClose, onSave, onExport, onImport }: { profile: Profile; onClose: () => void; onSave: (profile: Profile) => void; onExport: () => void; onImport: () => void }) {
   const [profile, setProfile] = useState(initial)
-  return <Modal title="Профиль" subtitle="Уровень определяет ожидания шкалы; рынок и отчётный цикл помогают сохранять рабочий контекст." onClose={onClose} isDirty={JSON.stringify(profile) !== JSON.stringify(initial)}><form className="escada-modal-form" onSubmit={(event) => { event.preventDefault(); onSave(profile) }}><label className="escada-field">Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label className="escada-field">Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="escada-field">Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><section className="escada-profile-cycle-box"><div><strong>Отчётный цикл</strong><span>Используется только для периода в «Отчётах». Это не дедлайн и не автоматический review.</span></div><div className="escada-form-grid"><label className="escada-field">Ритм<select value={profile.reportingRhythm} onChange={(event) => setProfile({ ...profile, reportingRhythm: event.target.value as Profile['reportingRhythm'] })}>{Object.entries(reportingRhythmLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="escada-field">Конец текущего цикла<input type="date" value={profile.cycleEnd} onChange={(event) => setProfile({ ...profile, cycleEnd: event.target.value })} /></label></div></section><div className="escada-optional-block"><div><strong>Локальные данные</strong><span>Экспортируйте резервную копию или импортируйте её на другом устройстве.</span></div><div className="escada-button-row"><button type="button" className="escada-secondary-button" onClick={onExport}>Экспорт</button><button type="button" className="escada-secondary-button" onClick={onImport}>Импорт</button></div></div><div className="escada-modal-actions"><button className="escada-secondary-button" type="button" onClick={onClose}>Отмена</button><button className="escada-primary-button" type="submit">Сохранить</button></div></form></Modal>
+  return <Modal title="Профиль" subtitle="Уровень определяет ожидания шкалы; рынок и отчётный цикл помогают сохранять рабочий контекст." onClose={onClose} isDirty={JSON.stringify(profile) !== JSON.stringify(initial)}><form className="escada-modal-form" onSubmit={(event) => { event.preventDefault(); onSave(profile) }}><label className="escada-field">Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><div className="escada-field">Уровень по шкале<Listbox label="Уровень по шкале" value={profile.currentLevel} options={labelOptions(levelLabels)} onChange={(currentLevel) => setProfile({ ...profile, currentLevel })} /></div><label className="escada-field">Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><section className="escada-profile-cycle-box"><div><strong>Отчётный цикл</strong><span>Используется только для периода в «Отчётах». Ревью настраивается отдельно.</span></div><div className="escada-form-grid"><div className="escada-field">Ритм<Listbox label="Ритм" value={profile.reportingRhythm} options={labelOptions(reportingRhythmLabels)} onChange={(reportingRhythm) => setProfile({ ...profile, reportingRhythm })} /></div><label className="escada-field">Конец текущего цикла<input type="date" value={profile.cycleEnd} onChange={(event) => setProfile({ ...profile, cycleEnd: event.target.value })} /></label></div></section><div className="escada-optional-block"><div><strong>Локальные данные</strong><span>Экспортируйте резервную копию или импортируйте её на другом устройстве.</span></div><div className="escada-button-row"><button type="button" className="escada-secondary-button" onClick={onExport}>Экспорт</button><button type="button" className="escada-secondary-button" onClick={onImport}>Импорт</button></div></div><div className="escada-modal-actions"><button className="escada-secondary-button" type="button" onClick={onClose}>Отмена</button><button className="escada-primary-button" type="submit">Сохранить</button></div></form></Modal>
 }
 
 // v41: `isDirty`, when true, makes Escape and backdrop-click confirm before
@@ -1688,42 +1801,71 @@ function ProfileModal({ profile: initial, onClose, onSave, onExport, onImport }:
 // previous immediate-close behavior (used by dialogs with nothing to lose,
 // e.g. read-only overlays). See Fable roadmap Patch F (P1-6).
 function useDialogBehavior(onClose: () => void, isDirty = false) {
+  const dialog = useRef<HTMLElement>(null)
+  const options = useRef({ onClose, isDirty })
+  useEffect(() => { options.current = { onClose, isDirty } }, [onClose, isDirty])
+
   useEffect(() => {
+    const panel = dialog.current
+    if (!panel) return
+    const opener = document.activeElement
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+
+    function focusable() {
+      return [...(dialog.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]',
+      ) ?? [])].filter((item) => item.getClientRects().length > 0 && item.tabIndex >= 0)
+    }
+
+    if (!panel.contains(opener)) (panel.querySelector<HTMLElement>('[data-initial-focus]') ?? focusable()[0] ?? panel).focus()
+
     const handler = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      if (isDirty && !window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return
-      onClose()
+      if (event.defaultPrevented) return
+      if (event.key === 'Escape') {
+        if (options.current.isDirty && !window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return
+        options.current.onClose()
+      }
+      if (event.key === 'Tab') {
+        const items = focusable()
+        const boundary = event.shiftKey ? items[0] : items.at(-1)
+        if (document.activeElement === boundary || !panel.contains(document.activeElement)) {
+          event.preventDefault()
+          const next = event.shiftKey ? items.at(-1) : items[0]
+          next?.focus()
+        }
+      }
     }
     window.addEventListener('keydown', handler)
     return () => {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handler)
+      if (opener instanceof HTMLElement && !panel.contains(opener) && opener.isConnected) opener.focus()
     }
-  }, [onClose, isDirty])
+  }, [])
+  return dialog
 }
 
-function Modal({ title, subtitle, onClose, children, wide = false, isDirty = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean; isDirty?: boolean }) {
-  useDialogBehavior(onClose, isDirty)
+function Modal({ title, subtitle, onClose, children, wide = false, isDirty = false, drawer = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean; isDirty?: boolean; drawer?: boolean }) {
+  const dialog = useDialogBehavior(onClose, isDirty)
   function confirmedClose() {
     if (isDirty && !window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return
     onClose()
   }
-  return <div className="escada-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) confirmedClose() }}><section className={`escada-compact-card ${wide ? 'escada-modal-wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="escada-modal-header"><div><span className="escada-eyebrow">Эскада</span><h2 id="modal-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" aria-label="Закрыть" onClick={confirmedClose}>×</button></div><div className="escada-compact-card-body">{children}</div></section></div>
+  return <div className={drawer ? 'escada-modal-backdrop escada-drawer-backdrop' : 'escada-modal-backdrop'} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) confirmedClose() }}><section className={`escada-compact-card ${drawer ? 'escada-note-drawer' : wide ? 'escada-modal-wide' : ''}`} ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="escada-modal-header"><div><span className="escada-eyebrow">Эскада</span><h2 id="modal-title">{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" aria-label="Закрыть" onClick={confirmedClose}><Icon name="close" /></button></div><div className="escada-compact-card-body">{children}</div></section></div>
 }
 
 function ArtifactEditorShell({ label, meta, onClose, children, actions, isDirty = false }: { label: string; meta?: ReactNode; onClose: () => void; children: ReactNode; actions: ReactNode; isDirty?: boolean }) {
-  useDialogBehavior(onClose, isDirty)
+  const dialog = useDialogBehavior(onClose, isDirty)
   function confirmedClose() {
     if (isDirty && !window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return
     onClose()
   }
   return <div className="escada-modal-backdrop escada-artifact-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) confirmedClose() }}>
-    <section className="escada-compact-card escada-artifact-editor-card" role="dialog" aria-modal="true" aria-label={label}>
+    <section className="escada-compact-card escada-artifact-editor-card" ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label={label}>
       <header className="escada-artifact-editor-header">
         <div className="escada-artifact-editor-identity"><strong>{label}</strong>{meta}</div>
-        <button className="escada-artifact-editor-close" type="button" aria-label="Закрыть" onClick={confirmedClose}>×</button>
+        <button className="escada-artifact-editor-close" type="button" aria-label="Закрыть" onClick={confirmedClose}><Icon name="close" /></button>
       </header>
       <div className="escada-artifact-editor-body">{children}</div>
       <footer className="escada-artifact-editor-footer">{actions}</footer>
@@ -1733,9 +1875,5 @@ function ArtifactEditorShell({ label, meta, onClose, children, actions, isDirty 
 
 function Onboarding({ initial, onComplete, onDemo }: { initial: Profile; onComplete: (profile: Profile) => void; onDemo: () => void }) {
   const [profile, setProfile] = useState(initial)
-  return <div className="escada-onboarding-backdrop"><section className="escada-onboarding"><div className="escada-onboarding-visual"><span className="escada-brand-mark"><LadderLogo /></span><p>Эскада</p><h1>Записал.<br />Развил.<br />Подтвердил.</h1><div className="escada-onboarding-flow"><span>Мысль</span><i>→</i><span>Win</span><i>→</i><span>Рост</span></div></div><form onSubmit={(event) => { event.preventDefault(); onComplete(profile) }}><span className="escada-eyebrow">Настройка за минуту</span><h2>Добавьте рабочий контекст</h2><p>Уровень определяет ожидания и рекомендации Эскады. Рынок помогает сохранить рабочий контекст; отчётный цикл можно настроить позже в профиле.</p><label>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><label>Уровень по шкале<select value={profile.currentLevel} onChange={(event) => setProfile({ ...profile, currentLevel: event.target.value as LevelKey })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><button className="escada-primary-button" type="submit">Начать работу</button><button className="escada-text-button" type="button" onClick={onDemo}>Посмотреть с демо-данными</button></form></section></div>
-}
-
-function EmptyState({ title, text, action, onAction }: { title: string; text: string; action: string; onAction: () => void }) {
-  return <div className="escada-empty-state"><span>＋</span><h3>{title}</h3><p>{text}</p><button type="button" onClick={onAction}>{action}</button></div>
+  return <div className="escada-onboarding-backdrop"><section className="escada-onboarding"><div className="escada-onboarding-visual"><span className="escada-brand-mark"><LadderLogo /></span><p>Эскада</p><h1>Записал.<br />Развил.<br />Подтвердил.</h1><div className="escada-onboarding-flow"><span>Мысль</span><i>→</i><span>Win</span><i>→</i><span>Рост</span></div></div><form onSubmit={(event) => { event.preventDefault(); onComplete(profile) }}><span className="escada-eyebrow">Настройка за минуту</span><h2>Добавьте рабочий контекст</h2><p>Уровень определяет ожидания и рекомендации Эскады. Рынок помогает сохранить рабочий контекст; отчётный цикл можно настроить позже в профиле.</p><label>Имя<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></label><div className="escada-field">Уровень по шкале<Listbox label="Уровень по шкале" value={profile.currentLevel} options={labelOptions(levelLabels)} onChange={(currentLevel) => setProfile({ ...profile, currentLevel })} /></div><label>Рынок или команда<input value={profile.market} onChange={(event) => setProfile({ ...profile, market: event.target.value })} /></label><button className="escada-primary-button" type="submit" data-accent="lime">Начать работу</button><button className="escada-text-button" type="button" onClick={onDemo}>Посмотреть с демо-данными</button></form></section></div>
 }
