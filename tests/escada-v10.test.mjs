@@ -559,7 +559,8 @@ test('Today uses a responsive three-column grid and Ideas keeps four scrollable 
   const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8')
   assert.match(css, /\.escada-pin-board \{[^}]*repeat\(3, minmax\(0, 1fr\)\)/)
   assert.match(css, /\.escada-note-title \{[^}]*font-weight: 500/)
-  assert.match(css, /\.escada-kanban-board \{[^}]*repeat\(4, minmax\(180px, 1fr\)\)[^}]*scroll-snap-type: x proximity/)
+  assert.match(css, /\.escada-kanban-board \{[^}]*repeat\(4, minmax\(15\.5rem, 1fr\)\)/)
+  assert.match(css, /\.escada-kanban-board \{[^}]*scroll-snap-type: x proximity/)
   assert.match(css, /@media \(max-width: 440px\)[\s\S]*?\.escada-pin-board \{ grid-template-columns: 1fr; \}/)
 })
 

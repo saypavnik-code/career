@@ -3,13 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Listbox } from '../ui/Listbox'
+import { REVIEW_HISTORY_KEY } from './settings'
 import { LIMITS, PEER_SECTIONS, REVIEW_VERSION, SELF_REVIEW_VERSION, validateReviewRequest, validateReviewResponse } from './review-contract.mjs'
 import type { CompetencyAssessment, ReviewMode, ReviewQuestion, ReviewRequest, ReviewTurn } from './review-contract.mjs'
 import { getReviewRubric, isReviewLevel, REVIEW_LEVEL_LABELS } from './review-rubric.mjs'
 import type { ReviewLevel } from './review-rubric.mjs'
 
-const STORAGE_KEY = 'escada:performance-review:v1'
-const DEFAULT_ENDPOINT = 'http://127.0.0.1:8787/review'
 const HISTORY_DATE = new Intl.DateTimeFormat('ru', { dateStyle: 'medium' })
 const MODE_LABELS = { self: 'Оценка себя', peer: 'Оценка коллеги' } satisfies Record<ReviewMode, string>
 const MODE_DESCRIPTIONS = {
@@ -35,14 +34,14 @@ type Session = {
   diagnostics: string
 }
 
-type Shelf = { sessions: Session[]; endpoint: string }
-const EMPTY_SHELF: Shelf = { sessions: [], endpoint: '' }
+type Shelf = { sessions: Session[] }
+const EMPTY_SHELF: Shelf = { sessions: [] }
 
 function readShelf(): Shelf {
-  const raw = window.localStorage.getItem(STORAGE_KEY)
+  const raw = window.localStorage.getItem(REVIEW_HISTORY_KEY)
   if (raw === null) return EMPTY_SHELF
   const data = JSON.parse(raw) as Shelf
-  if (!data || !Array.isArray(data.sessions) || typeof data.endpoint !== 'string' ||
+  if (!data || !Array.isArray(data.sessions) ||
     data.sessions.some((entry) => !entry || typeof entry.id !== 'string' || !Array.isArray(entry.points) ||
       !Array.isArray(entry.turns) || !Array.isArray(entry.covered) || !Array.isArray(entry.missing) ||
       (entry.draft !== null && typeof entry.draft !== 'string') || !Number.isFinite(Date.parse(entry.updatedAt)))) {
@@ -57,16 +56,6 @@ function loadShelf() {
   } catch {
     return { shelf: EMPTY_SHELF, error: 'Не удалось прочитать историю. Сохранённые записи не перезаписываются при ошибке.' }
   }
-}
-
-function parseEndpoint(value: string) {
-  const endpoint = new URL(value.trim())
-  const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(endpoint.hostname)
-  if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
-    (endpoint.protocol !== 'https:' && !(endpoint.protocol === 'http:' && loopback))) {
-    throw new Error('Invalid gateway address')
-  }
-  return endpoint.href
 }
 
 function title(session: Session) {
@@ -122,7 +111,9 @@ function ReviewRubric({ level, assessment }: { level: ReviewLevel; assessment?: 
   )
 }
 
-export default function PerformanceReview({ profileLevel }: { profileLevel: ReviewLevel }) {
+export default function PerformanceReview({ profileLevel, endpoint, onOpenSettings }: {
+  profileLevel: ReviewLevel; endpoint: string; onOpenSettings: () => void
+}) {
   const [initial] = useState(loadShelf)
   const [shelf, setShelf] = useState(initial.shelf)
   const [storageError, setStorageError] = useState(initial.error)
@@ -133,7 +124,6 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
   const [pointsText, setPointsText] = useState('')
   const [selectedLevel, setLevel] = useState<ReviewLevel | null>(null)
   const level = selectedLevel ?? profileLevel
-  const [endpointText, setEndpointText] = useState(initial.shelf.endpoint || DEFAULT_ENDPOINT)
   const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState<ReviewRequest['action'] | null>(null)
   const [error, setError] = useState('')
@@ -153,7 +143,7 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
     const fallback = change(shelf)
     try {
       const next = change(readShelf())
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      window.localStorage.setItem(REVIEW_HISTORY_KEY, JSON.stringify(next))
       setShelf(next)
       setStorageError('')
     } catch {
@@ -198,21 +188,8 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
     setSubject('')
   }
 
-  function saveEndpoint(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    resetMessages()
-    try {
-      const endpoint = parseEndpoint(endpointText)
-      persist((current) => ({ ...current, endpoint }))
-      setEndpointText(endpoint)
-      setNotice('Адрес агента сохранён.')
-    } catch {
-      setError('Укажите HTTPS-адрес или HTTP-адрес на localhost, 127.0.0.1 или [::1].')
-    }
-  }
-
   async function ask(entry: Session, action: ReviewRequest['action']) {
-    if (activeRequest.current || !shelf.endpoint || (entry.mode === 'self' && !isReviewLevel(entry.level))) return
+    if (activeRequest.current || !endpoint || (entry.mode === 'self' && !isReviewLevel(entry.level))) return
     resetMessages()
     const controller = new AbortController()
     const timeout = AbortSignal.timeout(125000)
@@ -224,7 +201,7 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
         action, mode: entry.mode, subject: entry.subject, level: entry.level,
         period: entry.period, points: entry.points, turns: entry.turns,
       })
-      const response = await fetch(parseEndpoint(shelf.endpoint), {
+      const response = await fetch(endpoint, {
         method: 'POST',
         credentials: 'omit',
         redirect: 'error',
@@ -273,7 +250,7 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
   }
 
   function submitAnswer(entry: Session, value: string | null) {
-    if (!entry.question || activeRequest.current || !shelf.endpoint) return
+    if (!entry.question || activeRequest.current || !endpoint) return
     const next: Session = {
       ...entry, question: null, turns: [...entry.turns, { ...entry.question, answer: value }],
       updatedAt: new Date().toISOString(),
@@ -369,19 +346,19 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
                 {session.question?.text || (session.ready ? 'Интервью завершено' : 'Интервью')}
               </h3>
               {session.question && <p className="escada-review-point">{session.points[session.question.point - 1]}</p>}
-              {!shelf.endpoint && <p><a href="#review-agent">Укажите адрес локального агента</a>, чтобы получить вопросы и черновик.</p>}
+              {!endpoint && <p>Для интервью <button type="button" className="escada-inline-link" onClick={onOpenSettings}>укажите адрес агента в профиле</button>.</p>}
               {session.question && (
                 <form className="escada-review-card-form" onSubmit={(event) => { event.preventDefault(); if (answer.trim()) submitAnswer(session, answer.trim()) }}>
                   <label>Ваш ответ<textarea rows={5} value={answer} maxLength={LIMITS.answer} onChange={(event) => setAnswer(event.target.value)} required /></label>
                   <div className="escada-button-row">
-                    <button type="submit" className="escada-primary-button" disabled={!answer.trim() || busy !== null || !shelf.endpoint}>Ответить</button>
-                    <button type="button" className="escada-secondary-button" disabled={busy !== null || !shelf.endpoint} onClick={() => submitAnswer(session, null)}>Пропустить вопрос</button>
+                    <button type="submit" className="escada-primary-button" disabled={!answer.trim() || busy !== null || !endpoint}>Ответить</button>
+                    <button type="button" className="escada-secondary-button" disabled={busy !== null || !endpoint} onClick={() => submitAnswer(session, null)}>Пропустить вопрос</button>
                   </div>
                 </form>
               )}
               <div className="escada-button-row">
-                {!session.question && canContinue && <button className="escada-primary-button" type="button" disabled={busy !== null || !shelf.endpoint} onClick={() => void ask(session, 'next')}>{session.turns.length ? 'Следующий вопрос' : 'Начать интервью'}</button>}
-                {canDraft && <button type="button" className={canContinue ? 'escada-secondary-button' : 'escada-primary-button'} disabled={busy !== null || !shelf.endpoint} onClick={() => void ask(session, 'draft')}>Собрать черновик</button>}
+                {!session.question && canContinue && <button className="escada-primary-button" type="button" disabled={busy !== null || !endpoint} onClick={() => void ask(session, 'next')}>{session.turns.length ? 'Следующий вопрос' : 'Начать интервью'}</button>}
+                {canDraft && <button type="button" className={canContinue ? 'escada-secondary-button' : 'escada-primary-button'} disabled={busy !== null || !endpoint} onClick={() => void ask(session, 'draft')}>Собрать черновик</button>}
               </div>
               {(session.ready || session.turns.length === LIMITS.turns) && !hasEvidence && <p>Для черновика нужен хотя бы один ответ. Начните новое ревью, чтобы добавить наблюдения.</p>}
             </section>
@@ -402,7 +379,7 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
             </details>
           )}
         </div>
-        <aside className="escada-review-rail" aria-label="Пункты, агент и история">
+        {(session || shelf.sessions.length > 0) && <aside className="escada-review-rail" aria-label="Пункты и история">
           {session && (
             <section className="escada-review-card">
               <h3>Пункты ревью</h3>
@@ -414,14 +391,6 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
               ))}</ol>
             </section>
           )}
-          <details id="review-agent" className="escada-review-card" open={!shelf.endpoint}>
-            <summary>Подключение агента</summary>
-            <form className="escada-review-card-form" onSubmit={saveEndpoint}>
-              <label>Адрес шлюза<input type="url" value={endpointText} onChange={(event) => setEndpointText(event.target.value)} maxLength={500} required /></label>
-              <small>При запросе вопросы, ответы и выбранная шкала отправляются на указанный сервер.</small>
-              <button className="escada-secondary-button" type="submit" disabled={busy !== null}>Сохранить адрес</button>
-            </form>
-          </details>
           {shelf.sessions.length > 0 && (
             <section className="escada-review-card">
               <h3>Мои ревью</h3>
@@ -435,7 +404,7 @@ export default function PerformanceReview({ profileLevel }: { profileLevel: Revi
               {session && <button className="escada-review-delete" type="button" disabled={busy !== null} onClick={() => remove(session)}>Удалить это ревью</button>}
             </section>
           )}
-        </aside>
+        </aside>}
       </div>
     </section>
   )

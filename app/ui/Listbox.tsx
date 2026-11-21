@@ -7,8 +7,9 @@ import { Icon } from './Icon'
 
 type Option<Value extends string> = { value: Value; label: string }
 
-export function Listbox<Value extends string>({ label, value, options, onChange }: {
+export function Listbox<Value extends string>({ label, value, options, onChange, variant = 'field' }: {
   label: string
+  variant?: 'field' | 'status'
   value: Value
   options: readonly Option<Value>[]
   onChange: (value: Value) => void
@@ -32,7 +33,7 @@ export function Listbox<Value extends string>({ label, value, options, onChange 
     }
     const below = window.innerHeight - box.bottom - 12
     const above = box.top - 12
-    const upward = below < Math.min(260, options.length * 44 + 8) && above > below
+    const upward = below < Math.min(260, options.length * (window.matchMedia('(pointer: coarse)').matches ? 40 : 32) + 8) && above > below
     const width = Math.min(Math.max(box.width, 192), window.innerWidth - 16)
     setPlacement({
       width,
@@ -135,18 +136,20 @@ export function Listbox<Value extends string>({ label, value, options, onChange 
 
   return (
     <>
-      <button ref={trigger} className="escada-listbox-trigger" type="button" role="combobox" aria-label={label}
+      <button ref={trigger} className="escada-listbox-trigger" data-variant={variant} data-status={variant === 'status' ? value : undefined} type="button" role="combobox" aria-label={label}
         aria-expanded={open} aria-controls={open ? id : undefined} aria-haspopup="listbox"
         aria-activedescendant={open ? `${id}-${active}` : undefined}
         onClick={() => { if (open) setPlacement(null); else show() }} onKeyDown={handleKey}
         onBlur={() => setPlacement(null)}>
+        {variant === 'status' && <i className="escada-status-dot" aria-hidden="true" />}
         <span>{options[selected]?.label}</span><Icon name="chevron" />
       </button>
       {placement && createPortal(
         <div ref={popup} id={id} className="escada-listbox-popup" role="listbox" aria-label={label} style={placement}>
           {options.map((option, index) => (
-            <div key={option.value} id={`${id}-${index}`} role="option" aria-selected={index === selected}
+            <div key={option.value} id={`${id}-${index}`} role="option" aria-selected={index === selected} data-status={variant === 'status' ? option.value : undefined}
               data-active={index === active} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(index)}>
+              {variant === 'status' && <i className="escada-status-dot" aria-hidden="true" />}
               <span>{option.label}</span>{index === selected && <Icon name="check" />}
             </div>
           ))}
